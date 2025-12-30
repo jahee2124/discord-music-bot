@@ -137,7 +137,7 @@ class Music(commands.Cog):
             state.current = await state.queue.get()
             state.is_playing = True
             ctx.voice_client.play(state.current, after=lambda e: self.bot.loop.create_task(self.play_check(ctx, e)))
-            await ctx.send(f'Now playing: {state.current.title}')
+            await ctx.send(f'지금 재생중: {state.current.title}')
         else:
             state.current = None
             state.is_playing = False
@@ -155,14 +155,15 @@ class Music(commands.Cog):
         if ctx.voice_client and ctx.voice_client.is_playing():
             ctx.voice_client.stop()
             await ctx.send("현재 노래를 건너뜁니다.")
-            await self.play_next(ctx)
         else:
             await ctx.send("현재 재생 중인 노래가 없습니다.")
 
     @commands.hybrid_command(name="정지", aliases=["pause"])
     async def pause(self, ctx):
         """재생중인 음악 일시정지 (= /일시정지)"""
-        if ctx.voice_client.is_paused() or not ctx.voice_client.is_playing():
+        if ctx.voice_client is None:
+            await ctx.send("봇이 음성 채널에 연결되어 있지 않습니다.")
+        elif ctx.voice_client.is_paused() or not ctx.voice_client.is_playing():
             await ctx.send("음악이 이미 일시 정지 중이거나 재생 중이지 않습니다.")
         else:
             ctx.voice_client.pause()
@@ -170,8 +171,10 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="재개", aliases=["resume"])
     async def resume(self, ctx):
-        ''' 일시정지된 음악 다시 재생 (= /재개)'''
-        if ctx.voice_client.is_playing() or not ctx.voice_client.is_paused():
+        """일시정지된 음악 다시 재생 (= /재개)"""
+        if ctx.voice_client is None:
+            await ctx.send("봇이 음성 채널에 연결되어 있지 않습니다.")
+        elif ctx.voice_client.is_playing() or not ctx.voice_client.is_paused():
             await ctx.send("음악이 이미 재생 중이거나 재생할 음악이 존재하지 않습니다.")
         else:
             ctx.voice_client.resume()
@@ -211,29 +214,37 @@ class Music(commands.Cog):
     @commands.hybrid_command(name="음량", aliases=["volume"])
     async def volume(self, ctx, volume: int):
         """음량 조절 (= /음량 [1 ~ 100 (기본값 30)])"""
-
         if ctx.voice_client is None:
-            return await ctx.send('Not connected to a voice channel.')
-
+            return await ctx.send("봇이 음성 채널에 연결되어 있지 않습니다.")
+        
+        if ctx.voice_client.source is None:
+            return await ctx.send("현재 재생 중인 음악이 없습니다.")
+        
+        volume = max(0, min(100, volume))  # 0-100 범위로 제한
         ctx.voice_client.source.volume = volume / 100
-        await ctx.send(f'Changed volume to {volume}%')
+        await ctx.send(f"음량을 {volume}%로 변경했습니다.")
 
     @commands.hybrid_command(name="퇴장", aliases=["quit"])
     async def stop(self, ctx):
         """재생을 중단하고 음성채널 퇴장 (= /퇴장)"""
-
+        if ctx.voice_client is None:
+            return await ctx.send("봇이 음성 채널에 연결되어 있지 않습니다.")
+        
+        state = self.get_state(ctx.guild.id)
+        state.clear()
         await ctx.voice_client.disconnect()
+        await ctx.send("음성 채널에서 퇴장했습니다.")
 
     @play.before_invoke
     async def ensure_voice(self, ctx):
         if not (ctx.author.voice and ctx.author.voice.channel):
-            await ctx.send("You are not connected to a voice channel.")
+            await ctx.send("사용자가 음성 채널에 연결되어 있지 않습니다.")
             raise commands.CommandError("Author not connected to a voice channel.")
         elif ctx.voice_client is None:
             if ctx.author.voice:
                 await ctx.author.voice.channel.connect()
             else:
-                await ctx.send("You are not connected to a voice channel.")
+                await ctx.send("사용자가 음성 채널에 연결되어 있지 않습니다")
                 raise commands.CommandError("Author not connected to a voice channel.")
 
 
