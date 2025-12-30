@@ -8,6 +8,8 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 from discord import opus
+
+# Opus 라이브러리 로드 (macOS 이용시 활성화)
 """
 if not opus.is_loaded():
     try:
