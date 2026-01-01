@@ -3,25 +3,32 @@ import logging
 import os
 import traceback
 import typing
+import platform
 
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 from discord import opus
 
-# Opus 라이브러리 로드 (macOS 이용시 활성화, window 이용시 비활성화)
-#--------------------------------------------------
-
-if not opus.is_loaded():
-    try:
-        opus.load_opus('/opt/homebrew/lib/libopus.dylib')
-    except OSError:
-        try:
-            opus.load_opus('/usr/local/lib/libopus.dylib')
-        except OSError:
-            print("Opus 라이브러리를 찾을 수 없습니다.")
-
-#--------------------------------------------------
+#macOS - Opus 라이브러리 로드
+if platform.system() == 'Darwin':
+    if not opus.is_loaded():
+        opus_paths = [
+            '/opt/homebrew/lib/libopus.dylib',      # Apple Silicon (M1, M2, M3, M4)
+            '/usr/local/lib/libopus.dylib',         # Intel Mac
+        ]
+        
+        found = False
+        for path in opus_paths:
+            try:
+                opus.load_opus(path)
+                found = True
+                break
+            except OSError:
+                continue
+        
+        if not found:
+            print("경고: Opus 라이브러리를 찾을 수 없습니다. 'brew install opus'를 실행했는지 확인하세요.")
 
 class CustomBot(commands.Bot):
     _uptime: datetime.datetime = datetime.datetime.now(datetime.timezone.utc)
