@@ -9,8 +9,9 @@ from discord.ext import commands
 from dotenv import load_dotenv
 from discord import opus
 
-# Opus 라이브러리 로드 (macOS 이용시 활성화)
-"""
+# Opus 라이브러리 로드 (macOS 이용시 활성화, window 이용시 비활성화)
+#--------------------------------------------------
+
 if not opus.is_loaded():
     try:
         opus.load_opus('/opt/homebrew/lib/libopus.dylib')
@@ -19,7 +20,8 @@ if not opus.is_loaded():
             opus.load_opus('/usr/local/lib/libopus.dylib')
         except OSError:
             print("Opus 라이브러리를 찾을 수 없습니다.")
-"""
+
+#--------------------------------------------------
 
 class CustomBot(commands.Bot):
     _uptime: datetime.datetime = datetime.datetime.now(datetime.timezone.utc)
