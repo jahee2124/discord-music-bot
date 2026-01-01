@@ -1,0 +1,11 @@
+[project]
+name = "musicbot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "discord-py[voice]>=2.6.4",
+    "dotenv>=0.9.9",
+    "yt-dlp>=2025.10.14",
+]
