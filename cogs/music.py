@@ -48,7 +48,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
         self.data = data
 
         self.title = data.get('title')
-        self.url = data.get('webpage_url') or data.get('url')
+        self.url = data.get('url')
 
     @classmethod
     async def from_url(cls, query, *, loop=None, stream=False):
