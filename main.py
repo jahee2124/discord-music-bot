@@ -30,34 +30,6 @@ if platform.system() == 'Darwin':
         if not found:
             print("경고: Opus 라이브러리를 찾을 수 없습니다. 'brew install opus'를 실행했는지 확인하세요.")
 
-
-# class CustomHelpCommand(commands.HelpCommand):
-#     async def send_bot_help(self, mapping):
-#         embed = discord.Embed(
-#             title=":clipboard: 도움말 :clipboard:",
-#             color=discord.Color.from_str("#ffffff")
-#         )
-#         for cog, commands_list in mapping.items():
-#             commands_list = [cmd for cmd in commands_list if not cmd.hidden]
-#             if not commands_list:
-#                 continue
-#             cog_name = cog.qualified_name if cog else "기타"
-#             cmd_names = ", ".join([f"`{cmd.name}`" for cmd in commands_list])
-#             embed.add_field(name=cog_name, value=cmd_names, inline=False)
-        
-#         embed.set_footer(text=f"명령어 도움말: {self.context.clean_prefix}help [명령어]")
-#         await self.get_destination().send(embed=embed)
-
-#     async def send_command_help(self, command):
-#         embed = discord.Embed(
-#             title=f"명령어: {command.name}",
-#             description=command.help or "설명 없음",
-#             color=discord.Color.from_str("#ffffff")
-#         )
-#         if command.aliases:
-#             embed.add_field(name="별칭", value=", ".join(f"`{alias}`" for alias in command.aliases), inline=False)
-#         await self.get_destination().send(embed=embed)
-
 class CustomBot(commands.Bot):
     _uptime: datetime.datetime = datetime.datetime.now(datetime.timezone.utc)
 
