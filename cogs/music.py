@@ -2,6 +2,7 @@ import asyncio
 import discord
 import yt_dlp
 from discord.ext import commands
+from discord import app_commands
 
 yt_dlp.utils.bug_reports_message = lambda *args, **kwargs: ''
 
@@ -116,7 +117,8 @@ class Music(commands.Cog):
             )
             await ctx.send(embed=embed)
 
-    @commands.hybrid_command(name="재생", aliases=["play", "p"])
+    @commands.hybrid_command(name="재생", aliases=["play", "p", "ㅔ"])
+    @app_commands.describe(command_name="제목 또는 링크")
     async def play(self, ctx, *, query):
         """플레이리스트에 음악 추가 (= /재생 [검색어]) [= !play, !p]"""
         state = self.get_state(ctx.guild.id)
@@ -284,6 +286,7 @@ class Music(commands.Cog):
             await ctx.send(embed=embed)
 
     @commands.hybrid_command(name="삭제", aliases=["delete", "remove", "rm"])
+    @app_commands.describe(command_name="대기열에서 삭제할 노래 번호")
     async def remove(self, ctx, index: int):
         """플레이리스트에 있는 곡 삭제. (= /삭제 [번호]) [= !remove, rm]"""
         state = self.get_state(ctx.guild.id)
@@ -314,7 +317,8 @@ class Music(commands.Cog):
             )
             await ctx.send(embed=embed)
 
-    @commands.hybrid_command(name="음량", aliases=["volume", "볼륨"])
+    @commands.hybrid_command(name="음량", aliases=["volume", "볼륨", "vol"])
+    @app_commands.describe(command_name="0 - 100 %")
     async def volume(self, ctx, volume: int):
         """음량 조절 (= /음량 [1 ~ 100 (기본값 30)]) [= !volume, !볼륨]"""
         if ctx.voice_client is None:
