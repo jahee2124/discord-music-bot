@@ -335,7 +335,7 @@ class Music(commands.Cog):
             )
             return await ctx.send(embed=embed)
         
-        if volume:
+        if volume is not None:
             volume = max(0, min(100, volume))
             ctx.voice_client.source.volume = volume / 100
             embed = discord.Embed(
@@ -345,7 +345,7 @@ class Music(commands.Cog):
             await ctx.send(embed=embed)
         else:
             embed = discord.Embed(
-            title=f":sound: 현재 음량: {volume}% :level_slider:",
+            title=f":sound: 현재 음량: {ctx.voice_client.source.volume * 100}% :level_slider:",
             color=discord.Color.from_str("#ffcc00")
             )
             await ctx.send(embed=embed)
