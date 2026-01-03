@@ -101,7 +101,7 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="입장", aliases=["join"])
     async def join(self, ctx, *, channel: discord.VoiceChannel = None):
-        """사용자가 있는 음성채널 입장 (= /입장) [= !join]"""
+        """입력한 음성채널 또는 사용자가 있는 채널 입장 (= /입장) [= !join]"""
         if channel is None and ctx.author.voice:
             channel = ctx.author.voice.channel
 
@@ -318,9 +318,9 @@ class Music(commands.Cog):
             await ctx.send(embed=embed)
 
     @commands.hybrid_command(name="음량", aliases=["volume", "볼륨", "vol"])
-    @app_commands.describe(volume="0 - 100 %")
-    async def volume(self, ctx, volume: int):
-        """음량 조절 (= /음량 [1 ~ 100 (기본값 30)]) [= !volume, !볼륨]"""
+    @app_commands.describe(volume="(옵션) 0 - 100%")
+    async def volume(self, ctx, volume: int = None):
+        """음량 조절 또는 현재 음량 확인(= /음량 [(선택사항)1 ~ 100 (기본값 30)]) [= !volume, !볼륨]"""
         if ctx.voice_client is None:
             embed = discord.Embed(
                 title=":warning: 봇이 음성 채널에 연결되어 있지 않습니다 :warning:",
@@ -335,13 +335,20 @@ class Music(commands.Cog):
             )
             return await ctx.send(embed=embed)
         
-        volume = max(0, min(100, volume))  # 0-100 범위로 제한
-        ctx.voice_client.source.volume = volume / 100
-        embed = discord.Embed(
+        if volume:
+            volume = max(0, min(100, volume))
+            ctx.voice_client.source.volume = volume / 100
+            embed = discord.Embed(
             title=f":sound: 음량을 {volume}%로 변경했습니다 :level_slider:",
             color=discord.Color.from_str("#ffcc00")
-        )
-        await ctx.send(embed=embed)
+            )
+            await ctx.send(embed=embed)
+        else:
+            embed = discord.Embed(
+            title=f":sound: 현재 음량: {volume}% :level_slider:",
+            color=discord.Color.from_str("#ffcc00")
+            )
+            await ctx.send(embed=embed)
 
     @commands.hybrid_command(name="퇴장", aliases=["quit"])
     async def stop(self, ctx):
