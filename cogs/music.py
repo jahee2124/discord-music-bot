@@ -27,7 +27,6 @@ ffmpeg_options = {
 
 ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
 
-
 class GuildMusicState:
     """서버별 음악 상태 관리"""
     def __init__(self):
@@ -117,7 +116,7 @@ class Music(commands.Cog):
             )
             await ctx.send(embed=embed)
 
-    @commands.hybrid_command(name="재생", aliases=["play", "p", "ㅔ"])
+    @commands.hybrid_command(name="재생", aliases=["play", "p", "ㅔ", "P", "ㅖ"])
     @app_commands.describe(query="제목 또는 링크")
     async def play(self, ctx, *, query):
         """플레이리스트에 음악 추가 (= /재생 [검색어]) [= !play, !p]"""
