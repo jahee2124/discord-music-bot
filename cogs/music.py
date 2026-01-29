@@ -18,6 +18,11 @@ ytdl_format_options = {
     'no_warnings': False,
     'default_search': 'auto',
     'source_address': '0.0.0.0',
+    'extractor_args': {
+        'youtube': {
+            'player_client': ['android', 'ios'],
+        }
+    },
 }
 
 ffmpeg_options = {
