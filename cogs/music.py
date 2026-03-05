@@ -20,9 +20,10 @@ ytdl_format_options = {
     'source_address': '0.0.0.0',
     'extractor_args': {
         'youtube': {
-            'player_client': ['android', 'ios'],
+            'player_client': ['default', 'mweb'],
         }
     },
+    'compat_opts': ['no-youtube-unavailable-videos'],
 }
 
 ffmpeg_options = {
