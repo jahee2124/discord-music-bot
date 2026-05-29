@@ -474,6 +474,17 @@ class Music(commands.Cog):
     @app_commands.describe(url="유튜브 플레이리스트 링크", playlist="저장할 플리 이름")
     async def copy_youtube_playlist(self, ctx, url: str, *, playlist: str):
         """유튜브 플레이리스트의 모든 곡을 한 번에 복사해옵니다."""
+        
+        if "list=" in url:
+            try:
+                from urllib.parse import urlparse, parse_qs
+                parsed = urlparse(url)
+                qs = parse_qs(parsed.query)
+                if 'list' in qs:
+                    url = f"https://www.youtube.com/playlist?list={qs['list'][0]}"
+            except Exception:
+                pass
+
         await ctx.send(embed=discord.Embed(
             title=f":hourglass_flowing_sand: 유튜브에서 '{playlist}' 플리 불러오는 중...", 
             color=discord.Color.from_str("#1a75ff")
@@ -482,7 +493,7 @@ class Music(commands.Cog):
         async with ctx.typing():
             pl_options = ytdl_format_options.copy()
             pl_options['noplaylist'] = False
-            pl_options['extract_flat'] = True
+            pl_options['extract_flat'] = True  
             
             pl_ytdl = yt_dlp.YoutubeDL(pl_options)
 
@@ -502,7 +513,13 @@ class Music(commands.Cog):
                     color=discord.Color.red()
                 ))
             
-            entries = info.get('entries', [info])
+            if 'entries' in info:
+                entries = list(info['entries'])
+            else:
+                if info.get('_type') == 'playlist':
+                    entries = []
+                else:
+                    entries = [info]
             
             added_count = 0
             skipped_count = 0
