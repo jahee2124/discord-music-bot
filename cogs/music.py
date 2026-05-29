@@ -304,18 +304,13 @@ class Music(commands.Cog):
         if not state.queue.empty():
             item = await state.queue.get()
             
-            try:
-                state.current = await YTDLSource.from_url(item['url'], loop=self.bot.loop, stream=True)
-            except Exception as e:
-                await ctx.send(embed=discord.Embed(title=f":warning: 재생 불가: {item['title']}", description="영상이 삭제되었거나 비공개되었습니다.", color=discord.Color.red()))
-                return self.bot.loop.create_task(self.play_check(ctx, e))
-            
             if isinstance(item, dict) and item.get('lazy'):
                 try:
                     state.current = await YTDLSource.from_url(item['url'], loop=self.bot.loop, stream=True)
                 except Exception as e:
-                    print(f"재생 오류: {e}")
-                    return asyncio.run_coroutine_threadsafe(self.play_check(ctx, e), self.bot.loop)
+                    await ctx.send(embed=discord.Embed(title=f":warning: 재생 불가: {item['title']}", description="영상이 삭제되었거나 비공개되었습니다.", color=discord.Color.red()))
+                    return self.bot.loop.create_task(self.play_check(ctx, e))
+            
             else:
                 state.current = item
             
