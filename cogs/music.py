@@ -613,6 +613,29 @@ class Music(commands.Cog):
             )
             await ctx.send(embed=embed)
 
+    @commands.hybrid_command(name="초기화", aliases=["clearqueue", "대기열비우기", "cq"])
+    async def clear_queue(self, ctx):
+        """대기열에 있는 모든 곡을 한 번에 삭제합니다. (= /초기화) [= !cq, !clearqueue]"""
+        state = self.get_state(ctx.guild.id)
+        
+        if state.queue.empty():
+            embed = discord.Embed(
+                title=":question: 대기열이 이미 비어 있습니다 :grey_question:",
+                color=discord.Color.from_str("#ff6600")
+            )
+            return await ctx.send(embed=embed)
+
+        cleared_count = state.queue.qsize()
+        
+        state.queue = asyncio.Queue()
+        
+        embed = discord.Embed(
+            title=f":wastebasket: 대기열에 있던 {cleared_count}곡을 모두 삭제했습니다!",
+            description="현재 재생 중인 곡은 계속 재생됩니다.",
+            color=discord.Color.from_str("#ffcc00")
+        )
+        await ctx.send(embed=embed)
+
     @commands.hybrid_command(name="음량", aliases=["volume", "볼륨", "vol"])
     @app_commands.describe(volume="(옵션) 0 - 100%")
     async def volume(self, ctx, volume: int = None):
