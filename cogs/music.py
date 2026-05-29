@@ -268,7 +268,7 @@ class Music(commands.Cog):
 
             embed=discord.Embed(
                 title=':mag_right: 음악 검색 결과 :cd:',
-                description=f'[{player.title}]({player.url})',
+                description=f'[{player.title}]({player.webpage_url})',
                 color=discord.Color.from_str("#1a75ff")
             )
             embed.add_field(name=":stopwatch: 길이", value=duration_str)
@@ -313,7 +313,7 @@ class Music(commands.Cog):
 
             embed=discord.Embed(
                 title=f':musical_note: NOW PLAYING: {state.current.title} :level_slider:',
-                description=f'[{state.current.title}]({state.current.url})',
+                description=f'[{state.current.title}]({state.current.webpage_url})',
                 color=discord.Color.from_str("#00ff00")
             )
             embed.add_field(name=":stopwatch: 길이", value=duration_str)

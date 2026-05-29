@@ -42,7 +42,8 @@ class Help(commands.Cog):
 
         else:
             embed = discord.Embed(
-                title=":clipboard: 도움말 :clipboard:",
+                title=":clipboard: NoRaeBot 전체 명령어 목록 :clipboard:",
+                description=f"특정 명령어의 자세한 사용법을 보려면 `{ctx.clean_prefix}도움말 [명령어]`를 입력하세요.\n(예: `{ctx.clean_prefix}도움말 재생`)",
                 color=discord.Color.from_str("#ffffff")
             )
             
@@ -55,15 +56,21 @@ class Help(commands.Cog):
                 if not visible_commands:
                     continue
                 
-                cmd_names = ", ".join([f"`{cmd.name}`" for cmd in visible_commands])
-                embed.add_field(name=cog.qualified_name, value=cmd_names, inline=False)
+                cmd_text = ""
+                for cmd in visible_commands:
+                    short_desc = cmd.short_doc or "설명 없음"
+                    cmd_text += f"**`{ctx.clean_prefix}{cmd.name}`** - {short_desc}\n"
+                
+                embed.add_field(name=f"📦 {cog.qualified_name}", value=cmd_text, inline=False)
             
             uncategorized = [cmd for cmd in self.bot.commands if cmd.cog is None and not cmd.hidden]
             if uncategorized:
-                 cmd_names = ", ".join([f"`{cmd.name}`" for cmd in uncategorized])
-                 embed.add_field(name="기타", value=cmd_names, inline=False)
+                 un_cmds = ""
+                 for cmd in uncategorized:
+                     short_desc = cmd.short_doc or "설명 없음"
+                     un_cmds += f"**`{ctx.clean_prefix}{cmd.name}`** - {short_desc}\n"
+                 embed.add_field(name="📌 기타", value=un_cmds, inline=False)
 
-            embed.set_footer(text=f"명령어 도움말: {ctx.clean_prefix}help [명령어]")
             await ctx.send(embed=embed)
 
 async def setup(bot):
