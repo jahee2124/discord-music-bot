@@ -164,16 +164,19 @@ class GuildMusicState:
 class YTDLSource(discord.PCMVolumeTransformer):
     def __init__(self, source, *, data, volume=0.3):
         super().__init__(source, volume)
-
         self.data = data
-
         self.title = data.get('title')
         self.url = data.get('url')
+        self.webpage_url = data.get('webpage_url') or data.get('original_url') or self.url
 
     @classmethod
     async def from_url(cls, query, *, loop=None, stream=False):
         loop = loop or asyncio.get_event_loop()
-        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(f"ytsearch:{query}", download=not stream))
+        
+        is_url = query.startswith(('http://', 'https://'))
+        search_query = query if is_url else f"ytsearch:{query}"
+        
+        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(search_query, download=not stream))
 
         if 'entries' in data:
             data = data['entries'][0]
@@ -430,11 +433,11 @@ class Music(commands.Cog):
                 await ctx.send(embed=discord.Embed(title=":x: 곡 정보를 가져올 수 없습니다.", color=discord.Color.from_str("#ff6600")))
                 return
 
-            self.playlist_manager.add_song(playlist, player.title, player.url)
+            self.playlist_manager.add_song(playlist, player.title, player.webpage_url)
             
             embed = discord.Embed(
                 title=f":inbox_tray: '{playlist}' 플리에 저장 완료!",
-                description=f"[{player.title}]({player.url})",
+                description=f"[{player.title}]({player.webpage_url})",
                 color=discord.Color.from_str("#00ff00")
             )
             await ctx.send(embed=embed)
