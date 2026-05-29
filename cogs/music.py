@@ -461,26 +461,33 @@ class Music(commands.Cog):
         await ctx.send(embed=discord.Embed(title=f":hourglass_flowing_sand: 유튜브에서 '{playlist}' 플리 불러오는 중...", color=discord.Color.from_str("#1a75ff")))
 
         async with ctx.typing():
-            info = await self.bot.loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
+            try:
+                info = await self.bot.loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
+            except Exception as e:
+                return await ctx.send(embed=discord.Embed(title=":x: 플레이리스트 정보를 가져올 수 없습니다.", description=str(e), color=discord.Color.red()))
             
             entries = info.get('entries', [])
-            
             added_count = 0
             skipped_count = 0
             
             for entry in entries:
-                title = entry.get('title')
-                webpage_url = entry.get('webpage_url')
+                if entry is None: continue
                 
-                if title and webpage_url:
-                    if self.playlist_manager.add_song(playlist, title, webpage_url):
-                        added_count += 1
-                    else:
-                        skipped_count += 1
+                try:
+                    title = entry.get('title')
+                    webpage_url = entry.get('webpage_url')
+                    
+                    if title and webpage_url:
+                        if self.playlist_manager.add_song(playlist, title, webpage_url):
+                            added_count += 1
+                        else:
+                            skipped_count += 1
+                except:
+                    continue
 
         embed = discord.Embed(
             title=f":inbox_tray: 유튜브 플리 복사 완료!",
-            description=f"성공: {added_count}곡\n중복되어 건너뜀: {skipped_count}곡",
+            description=f"성공: {added_count}곡\n중복/오류로 건너뜀: {skipped_count}곡",
             color=discord.Color.from_str("#00ff00")
         )
         await ctx.send(embed=embed)
