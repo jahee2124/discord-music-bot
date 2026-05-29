@@ -57,8 +57,13 @@ class PlaylistManager:
     def add_song(self, playlist, title, url):
         if playlist not in self.playlists:
             self.playlists[playlist] = []
+        
+        if any(track['url'] == url for track in self.playlists[playlist]):
+            return False
+            
         self.playlists[playlist].append({"title": title, "url": url})
         self.save_data()
+        return True
 
     def delete_song(self, playlist, index):
         if playlist in self.playlists and 0 <= index < len(self.playlists[playlist]):
@@ -134,19 +139,19 @@ class PlaylistPaginator(discord.ui.View):
 
     @discord.ui.button(label="◀ 이전", style=discord.ButtonStyle.primary)
     async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.current_page > 1:
-            self.current_page -= 1
-            await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        if self.current_page == 1:
+            self.current_page = self.total_pages
         else:
-            await interaction.response.defer()
+            self.current_page -= 1
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.primary)
     async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.current_page < self.total_pages:
-            self.current_page += 1
-            await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        if self.current_page == self.total_pages:
+            self.current_page = 1
         else:
-            await interaction.response.defer()
+            self.current_page += 1
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
 class GuildMusicState:
     """서버별 음악 상태 관리"""
@@ -434,12 +439,19 @@ class Music(commands.Cog):
                 return
 
             self.playlist_manager.add_song(playlist, player.title, player.webpage_url)
-            
-            embed = discord.Embed(
+
+            if self.playlist_manager.add_song(playlist, player.title, player.webpage_url):
+                embed = discord.Embed(
                 title=f":inbox_tray: '{playlist}' 플리에 저장 완료!",
                 description=f"[{player.title}]({player.webpage_url})",
                 color=discord.Color.from_str("#00ff00")
-            )
+                )
+            else:
+                embed = discord.Embed(
+                    title=":warning: 이미 플리에 존재하는 곡입니다.",
+                    color=discord.Color.from_str("#ffcc00")
+                )
+
             await ctx.send(embed=embed)
 
     @commands.hybrid_command(name="노래목록", aliases=["sl", "songlist"])
