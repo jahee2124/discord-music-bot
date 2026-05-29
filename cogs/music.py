@@ -17,7 +17,7 @@ ytdl_format_options = {
     'restrictfilenames': True,
     'noplaylist': True,
     'nocheckcertificate': True,
-    'ignoreerrors': False,
+    'ignoreerrors': True,
     'logtostderr': False,
     'quiet': True,
     'no_warnings': False,
@@ -184,9 +184,19 @@ class YTDLSource(discord.PCMVolumeTransformer):
         data = await loop.run_in_executor(None, lambda: ytdl.extract_info(search_query, download=not stream))
 
         if 'entries' in data:
-            data = data['entries'][0]
+            if len(data['entries']) > 0 and data['entries'][0] is not None:
+                data = data['entries'][0]
+            else:
+                return None
 
-        url = data['url'] if stream else ytdl.prepare_filename(data)
+        if data is None:
+            return None
+
+        url = data.get('url')
+        if not url:
+            return None
+            
+        url = url if stream else ytdl.prepare_filename(data)
         
         return cls(discord.FFmpegPCMAudio(
             url,
@@ -463,7 +473,7 @@ class Music(commands.Cog):
     @commands.hybrid_command(name="플리복사", aliases=["plcopy", "복사"])
     @app_commands.describe(url="유튜브 플레이리스트 링크", playlist="저장할 플리 이름")
     async def copy_youtube_playlist(self, ctx, url: str, *, playlist: str):
-        """유튜브 플레이리스트의 모든 곡을 한 번에 복사해옵니다."""
+        """유튜브 플레이리스트의 모든 곡을 한 번에 복사해옵니다. (= /추가 [유튜브 플리 링크] [플리 이름])"""
         await ctx.send(embed=discord.Embed(
             title=f":hourglass_flowing_sand: 유튜브에서 '{playlist}' 플리 불러오는 중...", 
             color=discord.Color.from_str("#1a75ff")
@@ -488,9 +498,11 @@ class Music(commands.Cog):
                 
                 try:
                     title = entry.get('title')
-                    webpage_url = entry.get('webpage_url')
+                    webpage_url = entry.get('webpage_url') or entry.get('url')
+                    if not webpage_url and entry.get('id'):
+                        webpage_url = f"https://www.youtube.com/watch?v={entry.get('id')}"
                     
-                    if title and webpage_url:
+                    if title and webpage_url and title != "[Private video]" and title != "[Deleted video]":
                         if self.playlist_manager.add_song(playlist, title, webpage_url):
                             added_count += 1
                         else:
