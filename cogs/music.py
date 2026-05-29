@@ -613,9 +613,9 @@ class Music(commands.Cog):
             )
             await ctx.send(embed=embed)
 
-    @commands.hybrid_command(name="초기화", aliases=["clearqueue", "대기열비우기", "cq"])
+    @commands.hybrid_command(name="초기화", aliases=["clearqueue", "대기열비우기", "cq", "clear"])
     async def clear_queue(self, ctx):
-        """대기열에 있는 모든 곡을 한 번에 삭제합니다. (= /초기화) [= !cq, !clearqueue]"""
+        """대기열에 있는 모든 곡을 한 번에 삭제합니다. (= /초기화) [= !cq, !clearqueue, !clear]"""
         state = self.get_state(ctx.guild.id)
         
         if state.queue.empty():
