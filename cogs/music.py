@@ -438,13 +438,13 @@ class Music(commands.Cog):
                 await ctx.send(embed=discord.Embed(title=":x: 곡 정보를 가져올 수 없습니다.", color=discord.Color.from_str("#ff6600")))
                 return
 
-            self.playlist_manager.add_song(playlist, player.title, player.webpage_url)
+            is_added = self.playlist_manager.add_song(playlist, player.title, player.webpage_url)
 
-            if self.playlist_manager.add_song(playlist, player.title, player.webpage_url):
+            if is_added:
                 embed = discord.Embed(
-                title=f":inbox_tray: '{playlist}' 플리에 저장 완료!",
-                description=f"[{player.title}]({player.webpage_url})",
-                color=discord.Color.from_str("#00ff00")
+                    title=f":inbox_tray: '{playlist}' 플리에 저장 완료!",
+                    description=f"[{player.title}]({player.webpage_url})",
+                    color=discord.Color.from_str("#00ff00")
                 )
             else:
                 embed = discord.Embed(
