@@ -440,7 +440,7 @@ class Music(commands.Cog):
             await ctx.send(embed=embed)
 
     @commands.hybrid_command(name="노래목록", aliases=["sl", "songlist"])
-    @app_commands.describe(playlist_name="확인할 플리 이름 (전체는 '통합' 입력)")
+    @app_commands.describe(playlist="확인할 플리 이름 (전체는 '통합' 입력)")
     async def show_playlist(self, ctx, playlist: str):
         """플레이리스트의 곡 목록을 보여줍니다. (= /노래목록 [플리 이름])"""
         tracks = self.playlist_manager.get_tracks(playlist)
