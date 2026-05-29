@@ -455,8 +455,8 @@ class Music(commands.Cog):
             await ctx.send(embed=embed)
 
     @commands.hybrid_command(name="플리복사", aliases=["plcopy", "복사"])
-    @app_commands.describe(playlist="저장할 플리 이름", url="유튜브 플레이리스트 링크")
-    async def copy_youtube_playlist(self, ctx, playlist: str, url: str):
+    @app_commands.describe(url="유튜브 플레이리스트 링크", playlist="저장할 플리 이름")
+    async def copy_youtube_playlist(self, ctx, url: str, *, playlist: str):
         """유튜브 플레이리스트의 모든 곡을 한 번에 복사해옵니다."""
         await ctx.send(embed=discord.Embed(title=f":hourglass_flowing_sand: 유튜브에서 '{playlist}' 플리 불러오는 중...", color=discord.Color.from_str("#1a75ff")))
 
