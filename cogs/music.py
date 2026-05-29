@@ -473,15 +473,21 @@ class Music(commands.Cog):
     @commands.hybrid_command(name="플리복사", aliases=["plcopy", "복사"])
     @app_commands.describe(url="유튜브 플레이리스트 링크", playlist="저장할 플리 이름")
     async def copy_youtube_playlist(self, ctx, url: str, *, playlist: str):
-        """유튜브 플레이리스트의 모든 곡을 한 번에 복사해옵니다. (= /추가 [유튜브 플리 링크] [플리 이름])"""
+        """유튜브 플레이리스트의 모든 곡을 한 번에 복사해옵니다."""
         await ctx.send(embed=discord.Embed(
             title=f":hourglass_flowing_sand: 유튜브에서 '{playlist}' 플리 불러오는 중...", 
             color=discord.Color.from_str("#1a75ff")
         ))
 
         async with ctx.typing():
+            pl_options = ytdl_format_options.copy()
+            pl_options['noplaylist'] = False
+            pl_options['extract_flat'] = True
+            
+            pl_ytdl = yt_dlp.YoutubeDL(pl_options)
+
             try:
-                info = await self.bot.loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False, process=True))
+                info = await self.bot.loop.run_in_executor(None, lambda: pl_ytdl.extract_info(url, download=False))
             except Exception as e:
                 return await ctx.send(embed=discord.Embed(
                     title=":x: 플레이리스트 정보를 가져올 수 없습니다.", 
@@ -489,25 +495,38 @@ class Music(commands.Cog):
                     color=discord.Color.red()
                 ))
             
-            entries = info.get('entries', [])
+            if info is None:
+                return await ctx.send(embed=discord.Embed(
+                    title=":x: 정보를 찾을 수 없습니다.", 
+                    description="해당 영상이 삭제/비공개 상태이거나 링크가 유효하지 않습니다.",
+                    color=discord.Color.red()
+                ))
+            
+            entries = info.get('entries', [info])
+            
             added_count = 0
             skipped_count = 0
             
             for entry in entries:
-                if entry is None: continue
+                if entry is None: 
+                    skipped_count += 1
+                    continue
                 
                 try:
                     title = entry.get('title')
-                    webpage_url = entry.get('webpage_url') or entry.get('url')
+                    webpage_url = entry.get('url') or entry.get('webpage_url')
                     if not webpage_url and entry.get('id'):
                         webpage_url = f"https://www.youtube.com/watch?v={entry.get('id')}"
                     
-                    if title and webpage_url and title != "[Private video]" and title != "[Deleted video]":
+                    if title and webpage_url and title not in ["[Private video]", "[Deleted video]"]:
                         if self.playlist_manager.add_song(playlist, title, webpage_url):
                             added_count += 1
                         else:
                             skipped_count += 1
+                    else:
+                        skipped_count += 1
                 except Exception:
+                    skipped_count += 1
                     continue
 
         embed = discord.Embed(
