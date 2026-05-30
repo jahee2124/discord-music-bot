@@ -89,7 +89,7 @@ class PlaylistManager:
 
     def get_tracks(self, playlist_name, shuffle=False):
         tracks = []
-        if playlist_name == "통합":
+        if playlist_name == "전체":
             for pl_tracks in self.playlists.values(): tracks.extend(pl_tracks)
             unique_tracks = {track['url']: track for track in tracks}
             tracks = list(unique_tracks.values())
