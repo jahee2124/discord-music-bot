@@ -153,6 +153,50 @@ class PlaylistPaginator(discord.ui.View):
             self.current_page += 1
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
+class QueuePaginator(discord.ui.View):
+    """대기열 목록을 10곡씩 잘라서 보여주는 버튼 UI 클래스"""
+    def __init__(self, queue_list):
+        super().__init__(timeout=120)
+        self.queue_list = queue_list
+        self.current_page = 1
+        self.per_page = 10
+        self.total_pages = math.ceil(len(queue_list) / self.per_page)
+
+    def create_embed(self):
+        """현재 페이지에 맞는 대기열 임베드 생성"""
+        start_idx = (self.current_page - 1) * self.per_page
+        end_idx = start_idx + self.per_page
+        page_tracks = self.queue_list[start_idx:end_idx]
+
+        message = ""
+        for idx, item in enumerate(page_tracks, start=start_idx + 1):
+            title = item['title'] if isinstance(item, dict) else item.title
+            message += f"**{idx}.** {title}\n"
+
+        embed = discord.Embed(
+            title=f":scroll: PLAYING NEXT (총 {len(self.queue_list)}곡) :scroll:",
+            description=message,
+            color=discord.Color.from_str("#1a75ff")
+        )
+        embed.set_footer(text=f"페이지 {self.current_page} / {self.total_pages}")
+        return embed
+
+    @discord.ui.button(label="◀ 이전", style=discord.ButtonStyle.primary)
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page == 1:
+            self.current_page = self.total_pages
+        else:
+            self.current_page -= 1
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.primary)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page == self.total_pages:
+            self.current_page = 1
+        else:
+            self.current_page += 1
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
 class GuildMusicState:
     """서버별 음악 상태 관리"""
     def __init__(self):
@@ -420,18 +464,10 @@ class Music(commands.Cog):
         """대기열 목록 출력 (= /대기열) [= !playingnext, !pn]"""
         state = self.get_state(ctx.guild.id)
         if not state.queue.empty():
-            message = ''
             temp_queue = list(state.queue._queue)
-            for idx, item in enumerate(temp_queue, start=1):
-                title = item['title'] if isinstance(item, dict) else item.title
-                message += f'{idx}. {title}\n'
-
-            embed = discord.Embed(
-                title=":scroll: PLAYING NEXT :scroll:\n",
-                description=message,
-                color=discord.Color.from_str("#1a75ff")
-            )
-            await ctx.send(embed=embed)
+            
+            view = QueuePaginator(temp_queue)
+            await ctx.send(embed=view.create_embed(), view=view)
         else:
             embed = discord.Embed(
                 title=":question: 대기열이 비어 있습니다 :grey_question:",
