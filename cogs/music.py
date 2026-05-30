@@ -213,7 +213,7 @@ class MusicController(discord.ui.View):
         super().__init__(timeout=None)
         self.cog = cog
         self.ctx = ctx
-        self._sync_button_states() # 💡 새로 만들어질 때 이전 상태들을 불러오는 함수 호출
+        self._sync_button_states()
 
     def _sync_button_states(self):
         """새 뷰가 렌더링될 때 state.loop_mode 값을 불러와서 버튼 라벨/색상을 동기화합니다."""
@@ -299,7 +299,6 @@ class MusicController(discord.ui.View):
             state.volume = max(0.0, state.volume - 0.1)
             self.ctx.voice_client.source.volume = state.volume
             
-            # 💡 볼륨 다운 시 임베드의 텍스트도 실시간 갱신
             embed = interaction.message.embeds[0]
             for i, field in enumerate(embed.fields):
                 if "볼륨" in field.name:
@@ -315,7 +314,6 @@ class MusicController(discord.ui.View):
             state.volume = min(1.0, state.volume + 0.1)
             self.ctx.voice_client.source.volume = state.volume
             
-            # 💡 볼륨 업 시 임베드의 텍스트도 실시간 갱신
             embed = interaction.message.embeds[0]
             for i, field in enumerate(embed.fields):
                 if "볼륨" in field.name:
@@ -376,7 +374,6 @@ class Music(commands.Cog):
                     current_time = state.get_current_time()
                     total_time = state.current.data.get('duration') or 0
                     embed = state.np_message.embeds[0]
-                    # Description만 갱신 (추가된 Field 정보는 유지됨)
                     embed.description = create_progress_bar(current_time, total_time)
                     await state.np_message.edit(embed=embed)
             except Exception: break
@@ -462,7 +459,6 @@ class Music(commands.Cog):
             embed=discord.Embed(title=f':musical_note: NOW PLAYING', description=create_progress_bar(0, total_sec), color=discord.Color.from_str("#00ff00"))
             embed.set_author(name=state.current.title, url=state.current.webpage_url)
             
-            # 💡 요청하신 대기열 남은 곡 수와 음량 Field 추가
             embed.add_field(name=":scroll: 대기열", value=f"**{state.queue.qsize()}곡** 대기중", inline=True)
             embed.add_field(name=":sound: 볼륨", value=f"**{int(state.volume * 100)}%**", inline=True)
             
@@ -475,7 +471,6 @@ class Music(commands.Cog):
             state.np_message = await ctx.send(embed=embed, view=view)
             state.update_task = self.bot.loop.create_task(self.progress_update_task(ctx))
             
-            # Now Playing 메시지 업데이트 후 남은 큐 목록 표시 갱신을 위해 큐에 있는 메시지가 있으면 갱신하는 로직 생략 (원한다면 추가 가능)
         else:
             state.current = None
             state.is_playing = False
@@ -576,7 +571,6 @@ class Music(commands.Cog):
             state.volume = max(0, min(100, volume)) / 100
             ctx.voice_client.source.volume = state.volume
             
-            # 💡 명령어 조작 시에도 Now Playing UI의 볼륨 숫자 갱신 적용
             if state.np_message:
                 try:
                     embed = state.np_message.embeds[0]
@@ -602,9 +596,8 @@ class Music(commands.Cog):
             player = await YTDLSource.from_url(query, loop=self.bot.loop, stream=True)
             if not player: return await ctx.send(embed=discord.Embed(title=":x: 가져올 수 없음", color=discord.Color.red()))
             if self.playlist_manager.add_song(playlist, player.title, player.webpage_url):
-                # 💡 추가 후 플리 길이를 재서 몇 번째인지 출력
                 pos = len(self.playlist_manager.playlists[playlist])
-                await ctx.send(embed=discord.Embed(title=f":inbox_tray: '{playlist}'에 추가됨", description=f"[{player.title}]({player.webpage_url})\n> `#{pos}번째 곡으로 저장 완료`", color=discord.Color.green()))
+                await ctx.send(embed=discord.Embed(title=f":inbox_tray: '{playlist}'에 추가됨", description=f"[{player.title}]({player.webpage_url})\n> `#{pos}번째 곡으로 저장 완료`", color=discord.Color.from_str("#1a75ff")))
             else: await ctx.send(embed=discord.Embed(title=":warning: 이미 존재하는 곡", color=discord.Color.gold()))
 
     @commands.hybrid_command(name="플리복사", aliases=["plcopy", "복사"])
