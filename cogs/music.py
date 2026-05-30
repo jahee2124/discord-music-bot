@@ -110,7 +110,7 @@ class PlaylistManager:
         return False
 
 class PlaylistPaginator(discord.ui.View):
-    """플리 노래 목록을 10곡씩 잘라서 보여주는 버튼 UI 클래스"""
+    """플레이리스트 노래 목록을 10곡씩 잘라서 보여주는 버튼 UI 클래스"""
     def __init__(self, tracks, playlist_name):
         super().__init__(timeout=120)
         self.tracks = tracks
@@ -130,7 +130,7 @@ class PlaylistPaginator(discord.ui.View):
             message += f"**{idx}.** {track['title']}\n"
 
         embed = discord.Embed(
-            title=f":folder: '{self.playlist_name}' 플리 노래 목록 ({len(self.tracks)}곡)",
+            title=f":folder: '{self.playlist_name}' 플레이리스트 노래 목록 ({len(self.tracks)}곡)",
             description=message,
             color=discord.Color.from_str("#1a75ff")
         )
@@ -489,13 +489,13 @@ class Music(commands.Cog):
 
             if is_added:
                 embed = discord.Embed(
-                    title=f":inbox_tray: '{playlist}' 플리에 저장 완료!",
+                    title=f":inbox_tray: '{playlist}' 플레이리스트에 저장 완료!",
                     description=f"[{player.title}]({player.webpage_url})",
-                    color=discord.Color.from_str("#00ff00")
+                    color=discord.Color.from_str("#1a75ff")
                 )
             else:
                 embed = discord.Embed(
-                    title=":warning: 이미 플리에 존재하는 곡입니다.",
+                    title=":warning: 이미 플레이리스트에 존재하는 곡입니다.",
                     color=discord.Color.from_str("#ffcc00")
                 )
 
@@ -517,7 +517,7 @@ class Music(commands.Cog):
                 pass
 
         await ctx.send(embed=discord.Embed(
-            title=f":hourglass_flowing_sand: 유튜브에서 '{playlist}' 플리 불러오는 중...", 
+            title=f":hourglass_flowing_sand: 유튜브에서 '{playlist}' 플레이리스트 불러오는 중...", 
             color=discord.Color.from_str("#1a75ff")
         ))
 
@@ -578,9 +578,9 @@ class Music(commands.Cog):
                     continue
 
         embed = discord.Embed(
-            title=f":inbox_tray: 유튜브 플리 복사 완료!",
+            title=f":inbox_tray: 유튜브 플레이리스트 복사 완료!",
             description=f"성공: {added_count}곡\n중복/오류로 건너뜀: {skipped_count}곡",
-            color=discord.Color.from_str("#00ff00")
+            color=discord.Color.from_str("#1a75ff")
         )
         await ctx.send(embed=embed)
 
@@ -592,7 +592,7 @@ class Music(commands.Cog):
         
         if not tracks:
             await ctx.send(embed=discord.Embed(
-                title=":x: 해당 이름의 플리가 비어있거나 존재하지 않습니다.", 
+                title=":x: 해당 이름의 플레이리스트가 비어있거나 존재하지 않습니다.", 
                 color=discord.Color.from_str("#ff6600")
             ))
             return
@@ -604,13 +604,13 @@ class Music(commands.Cog):
     @commands.hybrid_command(name="노래삭제", aliases=["삭제", "pdel"])
     @app_commands.describe(playlist="플리 이름", index="삭제할 곡 번호")
     async def delete_from_playlist(self, ctx, playlist: str, index: int):
-        """플리에서 특정 곡을 삭제합니다. (= /노래삭제 [플리 이름] [번호])"""
+        """플레이리스트에서 특정 곡을 삭제합니다. (= /노래삭제 [플리 이름] [번호])"""
         deleted = self.playlist_manager.delete_song(playlist, index - 1)
         if deleted:
             embed = discord.Embed(title=f":wastebasket: 삭제 완료: {deleted['title']}", color=discord.Color.from_str("#ffcc00"))
             await ctx.send(embed=embed)
         else:
-            await ctx.send(embed=discord.Embed(title=":warning: 번호가 잘못되었거나 플리가 없습니다.", color=discord.Color.from_str("#ff6600")))
+            await ctx.send(embed=discord.Embed(title=":warning: 번호가 잘못되었거나 플레이리스트가 없습니다.", color=discord.Color.from_str("#ff6600")))
 
     @commands.hybrid_command(name="플리재생", aliases=["playlistplay", "pp", "ㅔㅔ"])
     @app_commands.describe(playlist="플리 이름", mode="재생 모드 (순서대로/셔플)")
@@ -619,10 +619,10 @@ class Music(commands.Cog):
         app_commands.Choice(name="셔플", value="셔플")
     ])
     async def play_playlist(self, ctx, playlist: str, mode: str = "순서대로"):
-        """플리의 노래들을 대기열에 일괄 추가하고 재생합니다. (= /플리재생 [플리 이름] [모드])"""
+        """플레이리스트의 노래들을 대기열에 일괄 추가하고 재생합니다. (= /플리재생 [플리 이름] [모드])"""
         tracks = self.playlist_manager.get_tracks(playlist, shuffle=(mode == "셔플"))
         if not tracks:
-            await ctx.send(embed=discord.Embed(title=":x: 해당 플리가 비어있습니다.", color=discord.Color.from_str("#ff6600")))
+            await ctx.send(embed=discord.Embed(title=":x: 해당 플레이리스트가 비어있습니다.", color=discord.Color.from_str("#ff6600")))
             return
 
         state = self.get_state(ctx.guild.id)
@@ -631,8 +631,8 @@ class Music(commands.Cog):
             await state.queue.put({'lazy': True, 'title': track['title'], 'url': track['url']})
 
         await ctx.send(embed=discord.Embed(
-            title=f":white_check_mark: '{playlist}' 플리에서 {len(tracks)}곡 대기열 추가 완료! ({mode})", 
-            color=discord.Color.from_str("#00ff00")
+            title=f":white_check_mark: '{playlist}' 플레이리스트에서 {len(tracks)}곡 대기열 추가 완료! ({mode})", 
+            color=discord.Color.from_str("#1a75ff")
         ))
 
         if not state.is_playing and not ctx.voice_client.is_paused():
@@ -646,7 +646,7 @@ class Music(commands.Cog):
         if not playlists:
             await ctx.send(embed=discord.Embed(
                 title=":x: 아직 생성된 플레이리스트가 없습니다.", 
-                description="`/추가 [플리 이름] [노래]` 명령어로 새 플리를 만들어 보세요!",
+                description="`/추가 [플리 이름] [노래]` 명령어로 새 플레이리스트를 만들어 보세요!",
                 color=discord.Color.from_str("#ff6600")
             ))
             return
@@ -775,6 +775,32 @@ class Music(commands.Cog):
             title=f":wastebasket: 대기열에 있던 {cleared_count}곡을 모두 삭제했습니다!",
             description="현재 재생 중인 곡은 계속 재생됩니다.",
             color=discord.Color.from_str("#ffcc00")
+        )
+        await ctx.send(embed=embed)
+
+    @commands.hybrid_command(name="셔플", aliases=["shuffle", "섞기", "sf", "ㄴㄹ"])
+    async def shuffle_queue(self, ctx):
+        """현재 대기열에 있는 곡들의 순서를 무작위로 섞습니다. (= /셔플) [= !shuffle, !sf]"""
+        state = self.get_state(ctx.guild.id)
+        
+        if state.queue.empty():
+            embed = discord.Embed(
+                title=":question: 대기열이 비어 있어 섞을 곡이 없습니다 :grey_question:",
+                color=discord.Color.from_str("#ff6600")
+            )
+            return await ctx.send(embed=embed)
+
+        temp_queue = list(state.queue._queue)
+        random.shuffle(temp_queue)
+        
+        state.queue = asyncio.Queue()
+        for item in temp_queue:
+            await state.queue.put(item)
+            
+        embed = discord.Embed(
+            title=f":twisted_rightwards_arrows: 대기열에 있는 {len(temp_queue)}곡의 순서를 무작위로 섞었습니다!",
+            description="`!대기열` 명령어로 섞인 순서를 확인해 보세요.",
+            color=discord.Color.from_str("#1a75ff")
         )
         await ctx.send(embed=embed)
 
