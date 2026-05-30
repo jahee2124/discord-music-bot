@@ -170,7 +170,6 @@ class QueuePaginator(discord.ui.View):
         self.current_page = 1 if self.current_page == self.total_pages else self.current_page + 1
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
-# --- 상태 관리 모델 ---
 class GuildMusicState:
     def __init__(self):
         self.queue = asyncio.Queue()
@@ -181,7 +180,6 @@ class GuildMusicState:
         self.loop_mode = 0
         self.volume = 0.3
         
-        # 🚨 동기화 버그 방지용 카운터 (핵심 수정)
         self.force_skip_count = 0
         self.force_prev_count = 0
         self.ignore_play_check = 0 
@@ -215,14 +213,25 @@ class MusicController(discord.ui.View):
         super().__init__(timeout=None)
         self.cog = cog
         self.ctx = ctx
+        self._sync_button_states() # 💡 새로 만들어질 때 이전 상태들을 불러오는 함수 호출
+
+    def _sync_button_states(self):
+        """새 뷰가 렌더링될 때 state.loop_mode 값을 불러와서 버튼 라벨/색상을 동기화합니다."""
+        state = self.cog.get_state(self.ctx.guild.id)
+        for child in self.children:
+            if getattr(child, "custom_id", None) == "mc_loop":
+                if state.loop_mode == 0:
+                    child.label = "반복: 끔"; child.style = discord.ButtonStyle.secondary
+                elif state.loop_mode == 1:
+                    child.label = "반복: 현재 곡"; child.style = discord.ButtonStyle.success
+                elif state.loop_mode == 2:
+                    child.label = "반복: 대기열"; child.style = discord.ButtonStyle.primary
 
     @discord.ui.button(emoji="⏮️", style=discord.ButtonStyle.secondary, custom_id="mc_prev", row=0)
     async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
         state = self.cog.get_state(self.ctx.guild.id)
-        if not state.history:
-            return await interaction.followup.send("이전 곡 기록이 없습니다.", ephemeral=True)
-        
+        if not state.history: return await interaction.followup.send("이전 곡 기록이 없습니다.", ephemeral=True)
         prev_song = state.history.pop()
         
         if state.current:
@@ -235,10 +244,8 @@ class MusicController(discord.ui.View):
         for item in temp_list: await state.queue.put(item)
         
         state.force_prev_count += 1
-        if self.ctx.voice_client and self.ctx.voice_client.is_playing():
-            self.ctx.voice_client.stop()
-        else:
-            await self.cog.play_next(self.ctx)
+        if self.ctx.voice_client and self.ctx.voice_client.is_playing(): self.ctx.voice_client.stop()
+        else: await self.cog.play_next(self.ctx)
 
     @discord.ui.button(emoji="⏪", style=discord.ButtonStyle.secondary, custom_id="mc_rw", row=0)
     async def rw_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -270,10 +277,8 @@ class MusicController(discord.ui.View):
         await interaction.response.defer()
         state = self.cog.get_state(self.ctx.guild.id)
         state.force_skip_count += 1
-        if self.ctx.voice_client and self.ctx.voice_client.is_playing():
-            self.ctx.voice_client.stop()
-        else:
-            await self.cog.play_next(self.ctx)
+        if self.ctx.voice_client and self.ctx.voice_client.is_playing(): self.ctx.voice_client.stop()
+        else: await self.cog.play_next(self.ctx)
 
     @discord.ui.button(label="반복: 끔", emoji="🔁", style=discord.ButtonStyle.secondary, custom_id="mc_loop", row=1)
     async def loop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -289,19 +294,36 @@ class MusicController(discord.ui.View):
 
     @discord.ui.button(emoji="🔉", style=discord.ButtonStyle.secondary, custom_id="mc_voldown", row=1)
     async def voldown_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
         state = self.cog.get_state(self.ctx.guild.id)
         if self.ctx.voice_client and self.ctx.voice_client.source:
             state.volume = max(0.0, state.volume - 0.1)
             self.ctx.voice_client.source.volume = state.volume
+            
+            # 💡 볼륨 다운 시 임베드의 텍스트도 실시간 갱신
+            embed = interaction.message.embeds[0]
+            for i, field in enumerate(embed.fields):
+                if "볼륨" in field.name:
+                    embed.set_field_at(i, name=field.name, value=f"{int(state.volume * 100)}%", inline=True)
+            await interaction.response.edit_message(embed=embed, view=self)
+        else:
+            await interaction.response.defer()
 
     @discord.ui.button(emoji="🔊", style=discord.ButtonStyle.secondary, custom_id="mc_volup", row=1)
     async def volup_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
         state = self.cog.get_state(self.ctx.guild.id)
         if self.ctx.voice_client and self.ctx.voice_client.source:
             state.volume = min(1.0, state.volume + 0.1)
             self.ctx.voice_client.source.volume = state.volume
+            
+            # 💡 볼륨 업 시 임베드의 텍스트도 실시간 갱신
+            embed = interaction.message.embeds[0]
+            for i, field in enumerate(embed.fields):
+                if "볼륨" in field.name:
+                    embed.set_field_at(i, name=field.name, value=f"{int(state.volume * 100)}%", inline=True)
+            await interaction.response.edit_message(embed=embed, view=self)
+        else:
+            await interaction.response.defer()
+
 
 class YTDLSource(discord.PCMVolumeTransformer):
     def __init__(self, source, *, data, volume=0.3):
@@ -348,12 +370,13 @@ class Music(commands.Cog):
     async def progress_update_task(self, ctx):
         state = self.get_state(ctx.guild.id)
         while state.is_playing and state.current and state.np_message:
-            await asyncio.sleep(2) # 여기서 갱신 주기 2초 지정
+            await asyncio.sleep(2)
             try:
                 if ctx.voice_client and not ctx.voice_client.is_paused():
                     current_time = state.get_current_time()
                     total_time = state.current.data.get('duration') or 0
                     embed = state.np_message.embeds[0]
+                    # Description만 갱신 (추가된 Field 정보는 유지됨)
                     embed.description = create_progress_bar(current_time, total_time)
                     await state.np_message.edit(embed=embed)
             except Exception: break
@@ -367,7 +390,6 @@ class Music(commands.Cog):
         try: new_source = YTDLSource.create_direct(state.current.data, seek=new_time, volume=state.volume)
         except Exception: new_source = await YTDLSource.from_url(state.current.webpage_url, loop=self.bot.loop, stream=True, seek=new_time, volume=state.volume)
             
-        # 🚨 버튼 연타 방어: 강제로 곡이 끊길 때 play_check 로직을 1회 무시하라고 예약
         state.ignore_play_check += 1 
         ctx.voice_client.stop()
         
@@ -440,6 +462,10 @@ class Music(commands.Cog):
             embed=discord.Embed(title=f':musical_note: NOW PLAYING', description=create_progress_bar(0, total_sec), color=discord.Color.from_str("#00ff00"))
             embed.set_author(name=state.current.title, url=state.current.webpage_url)
             
+            # 💡 요청하신 대기열 남은 곡 수와 음량 Field 추가
+            embed.add_field(name=":scroll: 대기열", value=f"**{state.queue.qsize()}곡** 대기중", inline=True)
+            embed.add_field(name=":sound: 볼륨", value=f"**{int(state.volume * 100)}%**", inline=True)
+            
             thumbnail = state.current.data.get("thumbnail")
             if not thumbnail:
                 thumbnails = state.current.data.get("thumbnails") or []
@@ -448,6 +474,8 @@ class Music(commands.Cog):
             
             state.np_message = await ctx.send(embed=embed, view=view)
             state.update_task = self.bot.loop.create_task(self.progress_update_task(ctx))
+            
+            # Now Playing 메시지 업데이트 후 남은 큐 목록 표시 갱신을 위해 큐에 있는 메시지가 있으면 갱신하는 로직 생략 (원한다면 추가 가능)
         else:
             state.current = None
             state.is_playing = False
@@ -455,29 +483,22 @@ class Music(commands.Cog):
     async def play_check(self, ctx, error):
         state = self.get_state(ctx.guild.id)
         if error: print(f'에러: {error}')
-        
-        # 1. 방어막: 사용자가 탐색(앞/뒤로)으로 끊었으면, 큐 로직 건너뛰기
         if state.ignore_play_check > 0:
             state.ignore_play_check -= 1
             return
             
-        # 2. 방어막: 스킵이나 이전곡 버튼을 연타했을 때 처리 보장
         is_prev = False
         if state.force_prev_count > 0:
-            state.force_prev_count -= 1
-            is_prev = True
+            state.force_prev_count -= 1; is_prev = True
             
         is_skip = False
         if state.force_skip_count > 0:
-            state.force_skip_count -= 1
-            is_skip = True
+            state.force_skip_count -= 1; is_skip = True
 
-        # 3. 히스토리 기록 (현재 곡이 있고, 모드가 한곡반복이 아니며, 이전 곡으로 이동한 게 아닐 때)
         if state.current and state.loop_mode != 1 and not is_prev:
             state.history.append({'lazy': True, 'title': state.current.title, 'url': state.current.webpage_url})
             if len(state.history) > 10: state.history.pop(0)
 
-        # 4. 반복 모드 처리 (자연 종료일 때만 작동)
         if not is_skip and not is_prev and state.current:
             lazy_item = {'lazy': True, 'title': state.current.title, 'url': state.current.webpage_url}
             if state.loop_mode == 1:
@@ -539,14 +560,10 @@ class Music(commands.Cog):
     @commands.hybrid_command(name="초기화", aliases=["clearqueue", "대기열비우기", "cq", "clear"])
     async def clear_queue(self, ctx):
         state = self.get_state(ctx.guild.id)
-        
-        # 🚨 버그 픽스: 대기열이 비었어도 히스토리를 확인하고 완전히 청소합니다.
         cleared_count = state.queue.qsize()
         history_count = len(state.history)
-        
         if cleared_count == 0 and history_count == 0:
             return await ctx.send(embed=discord.Embed(title=":question: 대기열과 이전 곡 기록이 이미 비어 있습니다.", color=discord.Color.from_str("#ff6600")))
-            
         state.queue = asyncio.Queue()
         state.history.clear()
         await ctx.send(embed=discord.Embed(title=f":wastebasket: 대기열 {cleared_count}곡 삭제 및 이전 곡 기록 초기화 완료!", color=discord.Color.from_str("#ffcc00")))
@@ -558,6 +575,17 @@ class Music(commands.Cog):
         if volume is not None:
             state.volume = max(0, min(100, volume)) / 100
             ctx.voice_client.source.volume = state.volume
+            
+            # 💡 명령어 조작 시에도 Now Playing UI의 볼륨 숫자 갱신 적용
+            if state.np_message:
+                try:
+                    embed = state.np_message.embeds[0]
+                    for i, field in enumerate(embed.fields):
+                        if "볼륨" in field.name:
+                            embed.set_field_at(i, name=field.name, value=f"**{int(state.volume * 100)}%**", inline=True)
+                    await state.np_message.edit(embed=embed)
+                except Exception: pass
+            
             await ctx.send(embed=discord.Embed(title=f":sound: 음량을 {volume}%로 변경했습니다.", color=discord.Color.from_str("#ffcc00")))
         else: await ctx.send(embed=discord.Embed(title=f":sound: 현재 음량: {int(state.volume * 100)}%", color=discord.Color.from_str("#ffcc00")))
 
@@ -574,7 +602,9 @@ class Music(commands.Cog):
             player = await YTDLSource.from_url(query, loop=self.bot.loop, stream=True)
             if not player: return await ctx.send(embed=discord.Embed(title=":x: 가져올 수 없음", color=discord.Color.red()))
             if self.playlist_manager.add_song(playlist, player.title, player.webpage_url):
-                await ctx.send(embed=discord.Embed(title=f":inbox_tray: '{playlist}'에 추가됨", description=f"[{player.title}]({player.webpage_url})", color=discord.Color.green()))
+                # 💡 추가 후 플리 길이를 재서 몇 번째인지 출력
+                pos = len(self.playlist_manager.playlists[playlist])
+                await ctx.send(embed=discord.Embed(title=f":inbox_tray: '{playlist}'에 추가됨", description=f"[{player.title}]({player.webpage_url})\n> `#{pos}번째 곡으로 저장 완료`", color=discord.Color.green()))
             else: await ctx.send(embed=discord.Embed(title=":warning: 이미 존재하는 곡", color=discord.Color.gold()))
 
     @commands.hybrid_command(name="플리복사", aliases=["plcopy", "복사"])
