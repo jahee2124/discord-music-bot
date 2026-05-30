@@ -5,6 +5,7 @@ import json
 import os
 import random
 import math
+import time
 
 from discord.ext import commands
 from discord import app_commands
@@ -38,8 +39,27 @@ ffmpeg_options = {
 
 ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
 
+def create_progress_bar(current_sec, total_sec, length=20):
+    """재생 구간을 시각적 바(Bar)로 생성"""
+    if total_sec == 0:
+        return f"🔴 라이브 스트리밍 | {int(current_sec//60)}:{int(current_sec%60):02d}"
+    
+    progress = int((current_sec / total_sec) * length)
+    progress = max(0, min(length, progress))
+    bar = "▬" * progress + "🔘" + "▬" * (length - progress - 1)
+    
+    ch, crem = divmod(int(current_sec), 3600)
+    cm, cs = divmod(crem, 60)
+    curr_str = f"{ch}:{cm:02d}:{cs:02d}" if ch else f"{cm}:{cs:02d}"
+    
+    th, trem = divmod(int(total_sec), 3600)
+    tm, ts = divmod(trem, 60)
+    tot_str = f"{th}:{tm:02d}:{ts:02d}" if th else f"{tm}:{ts:02d}"
+    
+    return f"`{bar}`\n⏳ **{curr_str} / {tot_str}**"
+
+# --- [PlaylistManager, Paginator 클래스는 기존과 동일] ---
 class PlaylistManager:
-    """JSON 파일을 이용해 플레이리스트를 영구 저장하고 관리하는 클래스"""
     def __init__(self, filepath="playlists.json"):
         self.filepath = filepath
         self.playlists = self._load_data()
@@ -57,10 +77,8 @@ class PlaylistManager:
     def add_song(self, playlist, title, url):
         if playlist not in self.playlists:
             self.playlists[playlist] = []
-        
         if any(track['url'] == url for track in self.playlists[playlist]):
             return False
-            
         self.playlists[playlist].append({"title": title, "url": url})
         self.save_data()
         return True
@@ -75,34 +93,23 @@ class PlaylistManager:
         return None
 
     def get_tracks(self, playlist_name, shuffle=False):
-        """특정 플레이리스트의 곡 목록을 가져오거나, '통합' 입력 시 모든 곡을 중복 없이 병합하여 가져옵니다."""
         tracks = []
-        
         if playlist_name == "통합":
             for pl_tracks in self.playlists.values():
                 tracks.extend(pl_tracks)
-                
-            unique_tracks = {}
-            for track in tracks:
-                unique_tracks[track['url']] = track
+            unique_tracks = {track['url']: track for track in tracks}
             tracks = list(unique_tracks.values())
-            
         elif playlist_name in self.playlists:
             tracks = list(self.playlists[playlist_name])
         else:
             return []
-
-        if shuffle:
-            random.shuffle(tracks)
-            
+        if shuffle: random.shuffle(tracks)
         return tracks
     
     def get_all_playlists(self):
-        """생성된 모든 플레이리스트(플리)의 이름과 곡 수를 반환합니다."""
         return {playlist: len(tracks) for playlist, tracks in self.playlists.items() if tracks}
 
     def delete_playlist(self, playlist):
-        """특정 플레이리스트(폴더)를 통째로 삭제합니다."""
         if playlist in self.playlists:
             del self.playlists[playlist]
             self.save_data()
@@ -110,7 +117,6 @@ class PlaylistManager:
         return False
 
 class PlaylistPaginator(discord.ui.View):
-    """플레이리스트 노래 목록을 10곡씩 잘라서 보여주는 버튼 UI 클래스"""
     def __init__(self, tracks, playlist_name):
         super().__init__(timeout=120)
         self.tracks = tracks
@@ -120,17 +126,14 @@ class PlaylistPaginator(discord.ui.View):
         self.total_pages = math.ceil(len(tracks) / self.per_page)
 
     def create_embed(self):
-        """현재 페이지에 맞는 임베드 메시지를 생성합니다."""
         start_idx = (self.current_page - 1) * self.per_page
         end_idx = start_idx + self.per_page
         page_tracks = self.tracks[start_idx:end_idx]
-
         message = ""
         for idx, track in enumerate(page_tracks, start=start_idx + 1):
             message += f"**{idx}.** {track['title']}\n"
-
         embed = discord.Embed(
-            title=f":folder: '{self.playlist_name}' 플레이리스트 노래 목록 ({len(self.tracks)}곡)",
+            title=f":folder: '{self.playlist_name}' 플리 노래 목록 ({len(self.tracks)}곡)",
             description=message,
             color=discord.Color.from_str("#1a75ff")
         )
@@ -139,40 +142,32 @@ class PlaylistPaginator(discord.ui.View):
 
     @discord.ui.button(label="◀ 이전", style=discord.ButtonStyle.primary)
     async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.current_page == 1:
-            self.current_page = self.total_pages
-        else:
-            self.current_page -= 1
+        if self.current_page == 1: self.current_page = self.total_pages
+        else: self.current_page -= 1
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.primary)
     async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.current_page == self.total_pages:
-            self.current_page = 1
-        else:
-            self.current_page += 1
+        if self.current_page == self.total_pages: self.current_page = 1
+        else: self.current_page += 1
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
 class QueuePaginator(discord.ui.View):
-    """대기열 목록을 10곡씩 잘라서 보여주는 버튼 UI 클래스"""
     def __init__(self, queue_list):
         super().__init__(timeout=120)
         self.queue_list = queue_list
         self.current_page = 1
         self.per_page = 10
-        self.total_pages = math.ceil(len(queue_list) / self.per_page)
+        self.total_pages = math.ceil(len(queue_list) / max(1, self.per_page))
 
     def create_embed(self):
-        """현재 페이지에 맞는 대기열 임베드 생성"""
         start_idx = (self.current_page - 1) * self.per_page
         end_idx = start_idx + self.per_page
         page_tracks = self.queue_list[start_idx:end_idx]
-
         message = ""
         for idx, item in enumerate(page_tracks, start=start_idx + 1):
             title = item['title'] if isinstance(item, dict) else item.title
             message += f"**{idx}.** {title}\n"
-
         embed = discord.Embed(
             title=f":scroll: PLAYING NEXT (총 {len(self.queue_list)}곡) :scroll:",
             description=message,
@@ -183,31 +178,152 @@ class QueuePaginator(discord.ui.View):
 
     @discord.ui.button(label="◀ 이전", style=discord.ButtonStyle.primary)
     async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.current_page == 1:
-            self.current_page = self.total_pages
-        else:
-            self.current_page -= 1
+        if self.current_page == 1: self.current_page = max(1, self.total_pages)
+        else: self.current_page -= 1
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.primary)
     async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.current_page == self.total_pages:
-            self.current_page = 1
-        else:
-            self.current_page += 1
+        if self.current_page == self.total_pages: self.current_page = 1
+        else: self.current_page += 1
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
+
+# --- [새로운 관리 상태 모델 및 UI 컨트롤러] ---
 class GuildMusicState:
-    """서버별 음악 상태 관리"""
     def __init__(self):
         self.queue = asyncio.Queue()
         self.current = None
         self.is_playing = False
+        
+        # 신규 추가 변수들
+        self.history = [] # 최대 10개 이전 곡 저장
+        self.loop_mode = 0 # 0: 끔, 1: 한곡 반복, 2: 전체 대기열 반복
+        self.volume = 0.3
+        self.skip_request = False # 버튼/명령어로 스킵했는지 여부
+        
+        # 시간 추적용
+        self.start_time = 0
+        self.pause_time = 0
+        self.total_paused_time = 0
+        self.seek_offset = 0 # 앞/뒤로 가기 시 보정시간
+        
+        self.np_message = None # 현재 재생중 메시지 객체
+        self.update_task = None # 상태 업데이트 비동기 태스크
+
+    def get_current_time(self):
+        if not self.is_playing or self.start_time == 0:
+            return self.seek_offset
+        if self.pause_time > 0:
+            return (self.pause_time - self.start_time - self.total_paused_time) + self.seek_offset
+        return (time.time() - self.start_time - self.total_paused_time) + self.seek_offset
 
     def clear(self):
         self.queue = asyncio.Queue()
+        self.history.clear()
         self.current = None
         self.is_playing = False
+        self.skip_request = False
+        if self.update_task:
+            self.update_task.cancel()
+
+
+class MusicController(discord.ui.View):
+    """Now Playing 메시지 하단에 부착될 리모컨 UI"""
+    def __init__(self, cog, ctx):
+        super().__init__(timeout=None)
+        self.cog = cog
+        self.ctx = ctx
+
+    @discord.ui.button(emoji="⏮️", style=discord.ButtonStyle.secondary, custom_id="mc_prev", row=0)
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        state = self.cog.get_state(self.ctx.guild.id)
+        if not state.history:
+            return await interaction.followup.send("이전 곡 기록이 없습니다.", ephemeral=True)
+        
+        # 히스토리에서 마지막 곡 빼오기
+        prev_song = state.history.pop()
+        
+        # 현재 곡이 있으면 현재 곡을 큐 맨 앞에 임시로 밀어넣음 (이전곡 듣고 원래 곡 듣도록)
+        if state.current:
+            temp_list = [{'lazy': True, 'title': state.current.title, 'url': state.current.webpage_url}] + list(state.queue._queue)
+            state.queue = asyncio.Queue()
+            for item in temp_list: await state.queue.put(item)
+            
+        # 이전 곡을 현재 재생 곡으로 세팅하기 위해 맨 앞에 넣고 강제 스킵
+        temp_list = [prev_song] + list(state.queue._queue)
+        state.queue = asyncio.Queue()
+        for item in temp_list: await state.queue.put(item)
+        
+        state.skip_request = True
+        self.ctx.voice_client.stop()
+
+    @discord.ui.button(emoji="⏪", style=discord.ButtonStyle.secondary, custom_id="mc_rw", row=0)
+    async def rw_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        await self.cog.seek_music(self.ctx, -10)
+
+    @discord.ui.button(emoji="⏯️", style=discord.ButtonStyle.primary, custom_id="mc_playpause", row=0)
+    async def playpause_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        vc = self.ctx.voice_client
+        state = self.cog.get_state(self.ctx.guild.id)
+        if vc:
+            if vc.is_playing():
+                vc.pause()
+                state.pause_time = time.time()
+            elif vc.is_paused():
+                vc.resume()
+                if state.pause_time > 0:
+                    state.total_paused_time += (time.time() - state.pause_time)
+                    state.pause_time = 0
+
+    @discord.ui.button(emoji="⏩", style=discord.ButtonStyle.secondary, custom_id="mc_ff", row=0)
+    async def ff_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        await self.cog.seek_music(self.ctx, 10)
+
+    @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary, custom_id="mc_next", row=0)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        state = self.cog.get_state(self.ctx.guild.id)
+        if self.ctx.voice_client and self.ctx.voice_client.is_playing():
+            state.skip_request = True
+            self.ctx.voice_client.stop()
+
+    @discord.ui.button(label="반복: 끔", emoji="🔁", style=discord.ButtonStyle.secondary, custom_id="mc_loop", row=1)
+    async def loop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        state = self.cog.get_state(self.ctx.guild.id)
+        state.loop_mode = (state.loop_mode + 1) % 3
+        
+        if state.loop_mode == 0:
+            button.label = "반복: 끔"
+            button.style = discord.ButtonStyle.secondary
+        elif state.loop_mode == 1:
+            button.label = "반복: 현재 곡"
+            button.style = discord.ButtonStyle.success
+        elif state.loop_mode == 2:
+            button.label = "반복: 대기열"
+            button.style = discord.ButtonStyle.primary
+            
+        await interaction.response.edit_message(view=self)
+
+    @discord.ui.button(emoji="🔉", style=discord.ButtonStyle.secondary, custom_id="mc_voldown", row=1)
+    async def voldown_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        state = self.cog.get_state(self.ctx.guild.id)
+        if self.ctx.voice_client and self.ctx.voice_client.source:
+            state.volume = max(0.0, state.volume - 0.1)
+            self.ctx.voice_client.source.volume = state.volume
+
+    @discord.ui.button(emoji="🔊", style=discord.ButtonStyle.secondary, custom_id="mc_volup", row=1)
+    async def volup_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        state = self.cog.get_state(self.ctx.guild.id)
+        if self.ctx.voice_client and self.ctx.voice_client.source:
+            state.volume = min(1.0, state.volume + 0.1)
+            self.ctx.voice_client.source.volume = state.volume
 
 
 class YTDLSource(discord.PCMVolumeTransformer):
@@ -219,9 +335,8 @@ class YTDLSource(discord.PCMVolumeTransformer):
         self.webpage_url = data.get('webpage_url') or data.get('original_url') or self.url
 
     @classmethod
-    async def from_url(cls, query, *, loop=None, stream=False):
+    async def from_url(cls, query, *, loop=None, stream=False, seek=0, volume=0.3):
         loop = loop or asyncio.get_event_loop()
-        
         is_url = query.startswith(('http://', 'https://'))
         search_query = query if is_url else f"ytsearch:{query}"
         
@@ -233,20 +348,24 @@ class YTDLSource(discord.PCMVolumeTransformer):
             else:
                 return None
 
-        if data is None:
-            return None
-
+        if data is None: return None
         url = data.get('url')
-        if not url:
-            return None
-            
+        if not url: return None
         url = url if stream else ytdl.prepare_filename(data)
         
-        return cls(discord.FFmpegPCMAudio(
-            url,
-            before_options=ffmpeg_options['before_options'],
-            options=ffmpeg_options['options']
-        ), data=data)
+        b_opts = ffmpeg_options['before_options']
+        if seek > 0:
+            b_opts = f"-ss {seek} " + b_opts
+            
+        return cls(discord.FFmpegPCMAudio(url, before_options=b_opts, options=ffmpeg_options['options']), data=data, volume=volume)
+
+    @classmethod
+    def create_direct(cls, data, seek=0, volume=0.3):
+        """yt_dlp 추출 없이 오디오 다이렉트 URL로 바로 스트림 생성 (앞/뒤로 가기 속도 최적화)"""
+        b_opts = ffmpeg_options['before_options']
+        if seek > 0:
+            b_opts = f"-ss {seek} " + b_opts
+        return cls(discord.FFmpegPCMAudio(data['url'], before_options=b_opts, options=ffmpeg_options['options']), data=data, volume=volume)
 
 
 class Music(commands.Cog):
@@ -256,26 +375,65 @@ class Music(commands.Cog):
         self.playlist_manager = PlaylistManager()
 
     def get_state(self, guild_id: int) -> GuildMusicState:
-        """서버별 상태 가져오기 (없으면 생성)"""
         if guild_id not in self.guild_states:
             self.guild_states[guild_id] = GuildMusicState()
         return self.guild_states[guild_id]
 
+    # --- 백그라운드 태스크: 5초마다 재생바 갱신 ---
+    async def progress_update_task(self, ctx):
+        state = self.get_state(ctx.guild.id)
+        while state.is_playing and state.current and state.np_message:
+            await asyncio.sleep(5)  # 디스코드 API 제한 우회 (5초 권장)
+            try:
+                if ctx.voice_client and not ctx.voice_client.is_paused():
+                    current_time = state.get_current_time()
+                    total_time = state.current.data.get('duration') or 0
+                    
+                    embed = state.np_message.embeds[0]
+                    # Description만 재생바 형식으로 교체
+                    embed.description = create_progress_bar(current_time, total_time)
+                    await state.np_message.edit(embed=embed)
+            except Exception:
+                break # 메시지 삭제됨 등의 에러 처리
+
+    async def seek_music(self, ctx, offset):
+        """음악 탐색 (앞/뒤로 가기)"""
+        state = self.get_state(ctx.guild.id)
+        if not state.current or not ctx.voice_client or not ctx.voice_client.is_playing():
+            return
+            
+        current_time = state.get_current_time()
+        new_time = max(0, current_time + offset)
+        
+        # 새 오디오 소스 생성 (yt-dlp 재추출 없이 다이렉트로 빠르게 생성)
+        try:
+            new_source = YTDLSource.create_direct(state.current.data, seek=new_time, volume=state.volume)
+        except Exception:
+            # 다이렉트 실패 시 재추출
+            new_source = await YTDLSource.from_url(state.current.webpage_url, loop=self.bot.loop, stream=True, seek=new_time, volume=state.volume)
+            
+        # 스킵 처리되지 않게 플래그 세팅 후 스트림 교체
+        state.skip_request = True 
+        ctx.voice_client.stop()
+        
+        state.current = new_source
+        state.start_time = time.time()
+        state.pause_time = 0
+        state.total_paused_time = 0
+        state.seek_offset = new_time
+        state.skip_request = False
+        
+        ctx.voice_client.play(state.current, after=lambda e: asyncio.run_coroutine_threadsafe(self.play_check(ctx, e), self.bot.loop))
+
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
-        """음성 채널에 혼자 남으면 자동 퇴장"""
-        if member.bot:
-            return
-        
+        if member.bot: return
         if before.channel is not None:
             voice_client = member.guild.voice_client
-            
             if voice_client and voice_client.channel == before.channel:
                 members = [m for m in before.channel.members if not m.bot]
-                
                 if len(members) == 0:
                     await asyncio.sleep(10)
-                    
                     members = [m for m in voice_client.channel.members if not m.bot]
                     if len(members) == 0:
                         state = self.get_state(member.guild.id)
@@ -284,60 +442,32 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="입장", aliases=["join"])
     async def join(self, ctx, *, channel: discord.VoiceChannel = None):
-        """입력한 음성채널 또는 사용자가 있는 채널 입장 (= /입장) [= !join]"""
         if channel is None and ctx.author.voice:
             channel = ctx.author.voice.channel
-
         if ctx.voice_client is not None:
             return await ctx.voice_client.move_to(channel)
-
         if channel:
             await channel.connect()
         else:
-            embed = discord.Embed(
-                title=":warning: 음성 채널에 먼저 들어가거나 채널명을 입력해주세요 :warning:",
-                color=discord.Color.from_str("#ff6600")
-            )
-            await ctx.send(embed=embed)
+            await ctx.send(embed=discord.Embed(title=":warning: 음성 채널에 먼저 들어가주세요.", color=discord.Color.from_str("#ff6600")))
 
     @commands.hybrid_command(name="재생", aliases=["play", "p", "ㅔ", "P", "ㅖ"])
     @app_commands.describe(query="제목 또는 링크")
     async def play(self, ctx, *, query):
-        """대기열에 음악 추가 (= /재생 [검색어]) [= !play, !p]"""
         state = self.get_state(ctx.guild.id)
-
         async with ctx.typing():
-            
-            player = await YTDLSource.from_url(query, loop=self.bot.loop, stream=True)
+            player = await YTDLSource.from_url(query, loop=self.bot.loop, stream=True, volume=state.volume)
             if player is None:
-                embed = discord.Embed(
-                    title=":question: 노래를 가져오지 못했습니다. 검색어를 확인해주세요 :grey_question:",
-                    color=discord.Color.from_str("#ff6600")
-                )
-                await ctx.send(embed=embed)
-                return
+                return await ctx.send(embed=discord.Embed(title=":question: 노래를 가져오지 못했습니다.", color=discord.Color.from_str("#ff6600")))
 
             await state.queue.put(player)
             position = state.queue.qsize()
 
-            duration_sec = player.data.get("duration") or 0
-            h, rem = divmod(duration_sec, 3600)
-            m, s = divmod(rem, 60)
-            duration_str = f"{h:d}:{m:02d}:{s:02d}" if h else f"{m:d}:{s:02d}"
-
-            embed=discord.Embed(
-                title=':mag_right: 음악 검색 결과 :cd:',
-                description=f'[{player.title}]({player.webpage_url})',
+            embed = discord.Embed(
+                title=':mag_right: 대기열 추가 완료 :cd:',
+                description=f'[{player.title}]({player.webpage_url})\n> `#{position}번째 대기중`',
                 color=discord.Color.from_str("#1a75ff")
             )
-            embed.add_field(name=":stopwatch: 길이", value=duration_str)
-            embed.add_field(name=":scroll: 대기열", value=f"#{position}번째로 추가됨")
-            thumbnail = player.data.get("thumbnail")
-            if not thumbnail:
-                thumbnails = player.data.get("thumbnails") or []
-                thumbnail = thumbnails[-1]["url"] if thumbnails else None
-            if thumbnail:
-                embed.set_thumbnail(url=thumbnail)
             await ctx.send(embed=embed)
 
             if not state.is_playing and not ctx.voice_client.is_paused():
@@ -345,16 +475,20 @@ class Music(commands.Cog):
 
     async def play_next(self, ctx):
         state = self.get_state(ctx.guild.id)
+        
+        # 기존 갱신 태스크 취소
+        if state.update_task:
+            state.update_task.cancel()
+            
         if not state.queue.empty():
             item = await state.queue.get()
             
             if isinstance(item, dict) and item.get('lazy'):
                 try:
-                    state.current = await YTDLSource.from_url(item['url'], loop=self.bot.loop, stream=True)
+                    state.current = await YTDLSource.from_url(item['url'], loop=self.bot.loop, stream=True, volume=state.volume)
                 except Exception as e:
-                    await ctx.send(embed=discord.Embed(title=f":warning: 재생 불가: {item['title']}", description="영상이 삭제되었거나 비공개되었습니다.", color=discord.Color.red()))
+                    await ctx.send(embed=discord.Embed(title=f":warning: 재생 불가: {item['title']}", color=discord.Color.red()))
                     return self.bot.loop.create_task(self.play_check(ctx, e))
-            
             else:
                 state.current = item
             
@@ -362,521 +496,244 @@ class Music(commands.Cog):
                  return self.bot.loop.create_task(self.play_check(ctx, Exception("곡 정보를 불러올 수 없습니다.")))
 
             state.is_playing = True
+            state.skip_request = False
+            state.start_time = time.time()
+            state.pause_time = 0
+            state.total_paused_time = 0
+            state.seek_offset = 0
+            
             ctx.voice_client.play(state.current, after=lambda e: asyncio.run_coroutine_threadsafe(self.play_check(ctx, e), self.bot.loop))
 
-            position = state.queue.qsize()
-
-            duration_sec = state.current.data.get("duration") or 0
-            h, rem = divmod(duration_sec, 3600)
-            m, s = divmod(rem, 60)
-            duration_str = f"{h:d}:{m:02d}:{s:02d}" if h else f"{m:d}:{s:02d}"
-
+            # 컨트롤러 UI 및 임베드 생성
+            view = MusicController(self, ctx)
+            total_sec = state.current.data.get("duration") or 0
+            
             embed=discord.Embed(
-                title=f':musical_note: NOW PLAYING: {state.current.title} :level_slider:',
-                description=f'[{state.current.title}]({state.current.webpage_url})',
+                title=f':musical_note: NOW PLAYING',
+                description=create_progress_bar(0, total_sec),
                 color=discord.Color.from_str("#00ff00")
             )
-            embed.add_field(name=":stopwatch: 길이", value=duration_str)
-            embed.add_field(name=":scroll: 대기열", value=f"#{position}곡 대기중")
+            embed.set_author(name=state.current.title, url=state.current.webpage_url)
+            
             thumbnail = state.current.data.get("thumbnail")
             if not thumbnail:
                 thumbnails = state.current.data.get("thumbnails") or []
                 thumbnail = thumbnails[-1]["url"] if thumbnails else None
-            if thumbnail:
-                embed.set_thumbnail(url=thumbnail)
-            await ctx.send(embed=embed)
+            if thumbnail: embed.set_thumbnail(url=thumbnail)
+            
+            state.np_message = await ctx.send(embed=embed, view=view)
+            
+            # 진행바 업데이트 백그라운드 작업 시작
+            state.update_task = self.bot.loop.create_task(self.progress_update_task(ctx))
         else:
             state.current = None
             state.is_playing = False
 
     async def play_check(self, ctx, error):
         state = self.get_state(ctx.guild.id)
-        if error:
-            print(f'에러: {error}')
+        if error: print(f'에러: {error}')
+        
+        # 1. 자연스럽게 끝났고(스킵 안됨) 재생하던 곡이 존재할 때 루프 처리
+        if not state.skip_request and state.current:
+            lazy_item = {'lazy': True, 'title': state.current.title, 'url': state.current.webpage_url}
+            
+            if state.loop_mode == 1: # 한곡 반복 (제일 앞으로)
+                temp_list = [lazy_item] + list(state.queue._queue)
+                state.queue = asyncio.Queue()
+                for i in temp_list: await state.queue.put(i)
+            elif state.loop_mode == 2: # 전체 반복 (제일 뒤로)
+                await state.queue.put(lazy_item)
+
+        # 2. 히스토리 기록 (루프모드가 한곡 반복이 아닐 때만 쌓임)
+        if state.current and state.loop_mode != 1:
+            state.history.append({'lazy': True, 'title': state.current.title, 'url': state.current.webpage_url})
+            if len(state.history) > 10: # 히스토리 10개 유지
+                state.history.pop(0)
+
         state.is_playing = False
+        state.skip_request = False
         await self.play_next(ctx)
 
     @commands.hybrid_command(name="스킵", aliases=["skip", "s"])
     async def skip(self, ctx):
-        """현재 재생중인 노래 스킵 (= /스킵) [= !skip, !s]"""
         if ctx.voice_client and ctx.voice_client.is_playing():
+            state = self.get_state(ctx.guild.id)
+            state.skip_request = True
             ctx.voice_client.stop()
-            embed = discord.Embed(
-                title=":track_next: 현재 재생 중인 노래를 건너뜁니다 :track_next:",
-                color=discord.Color.from_str("#ffcc00")
-            )
-            await ctx.send(embed=embed)
+            await ctx.send(embed=discord.Embed(title=":track_next: 노래를 건너뜁니다.", color=discord.Color.from_str("#ffcc00")))
         else:
-            embed = discord.Embed(
-                title=":question: 현재 재생 중인 노래가 없습니다 :grey_question:",
-                color=discord.Color.from_str("#ff6600")
-            )
-            await ctx.send(embed=embed)
+            await ctx.send(embed=discord.Embed(title=":question: 재생 중인 노래가 없습니다.", color=discord.Color.from_str("#ff6600")))
 
     @commands.hybrid_command(name="정지", aliases=["pause", "일시정지"])
     async def pause(self, ctx):
-        """재생중인 음악 일시정지 (= /정지) [= !pause, !일시정지]"""
-        if ctx.voice_client is None:
-            embed = discord.Embed(
-                title=":warning: 봇이 음성 채널에 연결되어 있지 않습니다 :warning:",
-                color=discord.Color.from_str("#ff6600")
-            )
-            await ctx.send(embed=embed)
-        elif ctx.voice_client.is_paused() or not ctx.voice_client.is_playing():
-            embed = discord.Embed(
-                title=":question: 음악이 이미 일시 정지 중이거나 재생 중이지 않습니다 :grey_question:",
-                color=discord.Color.from_str("#ff6600")
-            )
-            await ctx.send(embed=embed)
-        else:
+        if ctx.voice_client and ctx.voice_client.is_playing():
             ctx.voice_client.pause()
-            embed = discord.Embed(
-                title=":pause_button: 음악이 일시 정지되었습니다 :pause_button:",
-                color=discord.Color.from_str("#ffcc00")
-            )
-            await ctx.send(embed=embed)
+            state = self.get_state(ctx.guild.id)
+            state.pause_time = time.time()
+            await ctx.send(embed=discord.Embed(title=":pause_button: 일시 정지되었습니다.", color=discord.Color.from_str("#ffcc00")))
 
     @commands.hybrid_command(name="재개", aliases=["resume"])
     async def resume(self, ctx):
-        """일시정지된 음악 다시 재생 (= /재개) [= !resume]"""
-        if ctx.voice_client is None:
-            embed = discord.Embed(
-                title=":warning: 봇이 음성 채널에 연결되어 있지 않습니다 :warning:",
-                color=discord.Color.from_str("#ff6600")
-            )
-            await ctx.send(embed=embed)
-        elif ctx.voice_client.is_playing() or not ctx.voice_client.is_paused():
-            embed = discord.Embed(
-                title=":question: 음악이 이미 재생 중이거나 재생할 음악이 존재하지 않습니다 :grey_question:",
-                color=discord.Color.from_str("#ff6600")
-            )
-            await ctx.send(embed=embed)
-        else:
+        if ctx.voice_client and ctx.voice_client.is_paused():
             ctx.voice_client.resume()
-            embed = discord.Embed(
-                title=":arrow_forward: 음악이 다시 재생됩니다 :arrow_forward:",
-                color=discord.Color.from_str("#ffcc00")
-            )
-            await ctx.send(embed=embed)
+            state = self.get_state(ctx.guild.id)
+            if state.pause_time > 0:
+                state.total_paused_time += (time.time() - state.pause_time)
+                state.pause_time = 0
+            await ctx.send(embed=discord.Embed(title=":arrow_forward: 다시 재생합니다.", color=discord.Color.from_str("#ffcc00")))
 
     @commands.hybrid_command(name="대기열", aliases=["playingnext", "pn"])
     async def show_queue(self, ctx):
-        """대기열 목록 출력 (= /대기열) [= !playingnext, !pn]"""
         state = self.get_state(ctx.guild.id)
         if not state.queue.empty():
             temp_queue = list(state.queue._queue)
-            
             view = QueuePaginator(temp_queue)
             await ctx.send(embed=view.create_embed(), view=view)
         else:
-            embed = discord.Embed(
-                title=":question: 대기열이 비어 있습니다 :grey_question:",
-                color=discord.Color.from_str("#ff6600")
-            )
-            await ctx.send(embed=embed)
+            await ctx.send(embed=discord.Embed(title=":question: 대기열이 비어 있습니다.", color=discord.Color.from_str("#ff6600")))
 
+    @commands.hybrid_command(name="셔플", aliases=["shuffle", "섞기", "ㅅㅍ"])
+    async def shuffle_queue(self, ctx):
+        state = self.get_state(ctx.guild.id)
+        if state.queue.empty():
+            return await ctx.send(embed=discord.Embed(title=":question: 섞을 곡이 없습니다.", color=discord.Color.from_str("#ff6600")))
+        temp_queue = list(state.queue._queue)
+        random.shuffle(temp_queue)
+        state.queue = asyncio.Queue()
+        for item in temp_queue: await state.queue.put(item)
+        await ctx.send(embed=discord.Embed(title=":twisted_rightwards_arrows: 대기열을 무작위로 섞었습니다!", color=discord.Color.from_str("#1a75ff")))
+
+    @commands.hybrid_command(name="초기화", aliases=["clearqueue", "대기열비우기", "cq", "clear"])
+    async def clear_queue(self, ctx):
+        state = self.get_state(ctx.guild.id)
+        if state.queue.empty():
+            return await ctx.send(embed=discord.Embed(title=":question: 대기열이 이미 비어 있습니다.", color=discord.Color.from_str("#ff6600")))
+        cleared_count = state.queue.qsize()
+        state.queue = asyncio.Queue()
+        state.history.clear() # 초기화 시 이전 곡 기록도 날림
+        await ctx.send(embed=discord.Embed(title=f":wastebasket: {cleared_count}곡을 삭제하고 히스토리를 초기화했습니다.", color=discord.Color.from_str("#ffcc00")))
+
+    @commands.hybrid_command(name="음량", aliases=["volume", "볼륨", "vol"])
+    @app_commands.describe(volume="(옵션) 0 - 100%")
+    async def volume(self, ctx, volume: int = None):
+        state = self.get_state(ctx.guild.id)
+        if ctx.voice_client is None or ctx.voice_client.source is None:
+            return await ctx.send(embed=discord.Embed(title=":warning: 설정할 대상이 없습니다.", color=discord.Color.from_str("#ff6600")))
+        
+        if volume is not None:
+            state.volume = max(0, min(100, volume)) / 100
+            ctx.voice_client.source.volume = state.volume
+            await ctx.send(embed=discord.Embed(title=f":sound: 음량을 {volume}%로 변경했습니다.", color=discord.Color.from_str("#ffcc00")))
+        else:
+            await ctx.send(embed=discord.Embed(title=f":sound: 현재 음량: {int(state.volume * 100)}%", color=discord.Color.from_str("#ffcc00")))
+
+    @commands.hybrid_command(name="퇴장", aliases=["quit"])
+    async def stop(self, ctx):
+        if ctx.voice_client:
+            state = self.get_state(ctx.guild.id)
+            state.clear()
+            await ctx.voice_client.disconnect()
+            await ctx.send(embed=discord.Embed(title=":door: 퇴장했습니다.", color=discord.Color.from_str("#ffcc00")))
+
+    # --- [이하 플리 관리 관련 코드는 동일] ---
     @commands.hybrid_command(name="추가", aliases=["add", "pladd", "ㅁㅇㅇ"])
-    @app_commands.describe(playlist="저장할 플레이리스트 이름", query="노래 제목 또는 링크")
     async def save_to_playlist(self, ctx, playlist: str, *, query: str):
-        """원하는 플레이리스트에 노래를 영구 저장합니다. (= /추가 [플리 이름] [검색어])"""
         async with ctx.typing():
             player = await YTDLSource.from_url(query, loop=self.bot.loop, stream=True)
-            if player is None:
-                await ctx.send(embed=discord.Embed(title=":x: 곡 정보를 가져올 수 없습니다.", color=discord.Color.from_str("#ff6600")))
-                return
-
-            is_added = self.playlist_manager.add_song(playlist, player.title, player.webpage_url)
-
-            if is_added:
-                embed = discord.Embed(
-                    title=f":inbox_tray: '{playlist}' 플레이리스트에 저장 완료!",
-                    description=f"[{player.title}]({player.webpage_url})",
-                    color=discord.Color.from_str("#1a75ff")
-                )
+            if not player: return await ctx.send(embed=discord.Embed(title=":x: 가져올 수 없음", color=discord.Color.red()))
+            if self.playlist_manager.add_song(playlist, player.title, player.webpage_url):
+                await ctx.send(embed=discord.Embed(title=f":inbox_tray: '{playlist}'에 추가됨", description=f"[{player.title}]({player.webpage_url})", color=discord.Color.green()))
             else:
-                embed = discord.Embed(
-                    title=":warning: 이미 플레이리스트에 존재하는 곡입니다.",
-                    color=discord.Color.from_str("#ffcc00")
-                )
-
-            await ctx.send(embed=embed)
+                await ctx.send(embed=discord.Embed(title=":warning: 이미 존재하는 곡", color=discord.Color.gold()))
 
     @commands.hybrid_command(name="플리복사", aliases=["plcopy", "복사"])
-    @app_commands.describe(url="유튜브 플레이리스트 링크", playlist="저장할 플리 이름")
     async def copy_youtube_playlist(self, ctx, url: str, *, playlist: str):
-        """유튜브 플레이리스트의 모든 곡을 한 번에 복사해옵니다."""
-        
         if "list=" in url:
             try:
                 from urllib.parse import urlparse, parse_qs
                 parsed = urlparse(url)
                 qs = parse_qs(parsed.query)
-                if 'list' in qs:
-                    url = f"https://www.youtube.com/playlist?list={qs['list'][0]}"
-            except Exception:
-                pass
+                if 'list' in qs: url = f"https://www.youtube.com/playlist?list={qs['list'][0]}"
+            except Exception: pass
 
-        await ctx.send(embed=discord.Embed(
-            title=f":hourglass_flowing_sand: 유튜브에서 '{playlist}' 플레이리스트 불러오는 중...", 
-            color=discord.Color.from_str("#1a75ff")
-        ))
-
+        await ctx.send(embed=discord.Embed(title=f":hourglass_flowing_sand: '{playlist}' 불러오는 중...", color=discord.Color.blue()))
         async with ctx.typing():
             pl_options = ytdl_format_options.copy()
             pl_options['noplaylist'] = False
             pl_options['extract_flat'] = True  
-            
             pl_ytdl = yt_dlp.YoutubeDL(pl_options)
 
-            try:
-                info = await self.bot.loop.run_in_executor(None, lambda: pl_ytdl.extract_info(url, download=False))
-            except Exception as e:
-                return await ctx.send(embed=discord.Embed(
-                    title=":x: 플레이리스트 정보를 가져올 수 없습니다.", 
-                    description=str(e), 
-                    color=discord.Color.red()
-                ))
+            try: info = await self.bot.loop.run_in_executor(None, lambda: pl_ytdl.extract_info(url, download=False))
+            except Exception as e: return await ctx.send(embed=discord.Embed(title=":x: 오류", description=str(e), color=discord.Color.red()))
             
-            if info is None:
-                return await ctx.send(embed=discord.Embed(
-                    title=":x: 정보를 찾을 수 없습니다.", 
-                    description="해당 영상이 삭제/비공개 상태이거나 링크가 유효하지 않습니다.",
-                    color=discord.Color.red()
-                ))
+            if not info: return await ctx.send(embed=discord.Embed(title=":x: 없음", color=discord.Color.red()))
             
-            if 'entries' in info:
-                entries = list(info['entries'])
-            else:
-                if info.get('_type') == 'playlist':
-                    entries = []
-                else:
-                    entries = [info]
-            
-            added_count = 0
-            skipped_count = 0
+            entries = list(info['entries']) if 'entries' in info else ([] if info.get('_type') == 'playlist' else [info])
+            added_count = 0; skipped_count = 0
             
             for entry in entries:
-                if entry is None: 
-                    skipped_count += 1
-                    continue
-                
+                if not entry: skipped_count += 1; continue
                 try:
                     title = entry.get('title')
                     webpage_url = entry.get('url') or entry.get('webpage_url')
-                    if not webpage_url and entry.get('id'):
-                        webpage_url = f"https://www.youtube.com/watch?v={entry.get('id')}"
+                    if not webpage_url and entry.get('id'): webpage_url = f"https://www.youtube.com/watch?v={entry.get('id')}"
                     
                     if title and webpage_url and title not in ["[Private video]", "[Deleted video]"]:
-                        if self.playlist_manager.add_song(playlist, title, webpage_url):
-                            added_count += 1
-                        else:
-                            skipped_count += 1
-                    else:
-                        skipped_count += 1
-                except Exception:
-                    skipped_count += 1
-                    continue
-
-        embed = discord.Embed(
-            title=f":inbox_tray: 유튜브 플레이리스트 복사 완료!",
-            description=f"성공: {added_count}곡\n중복/오류로 건너뜀: {skipped_count}곡",
-            color=discord.Color.from_str("#1a75ff")
-        )
-        await ctx.send(embed=embed)
+                        if self.playlist_manager.add_song(playlist, title, webpage_url): added_count += 1
+                        else: skipped_count += 1
+                    else: skipped_count += 1
+                except Exception: skipped_count += 1
+        await ctx.send(embed=discord.Embed(title=":inbox_tray: 복사 완료!", description=f"성공: {added_count}곡\n건너뜀: {skipped_count}곡", color=discord.Color.green()))
 
     @commands.hybrid_command(name="노래목록", aliases=["sl", "songlist"])
-    @app_commands.describe(playlist="확인할 플리 이름 (전체는 '통합' 입력)")
     async def show_playlist(self, ctx, playlist: str):
-        """플레이리스트의 곡 목록을 보여줍니다. (= /노래목록 [플리 이름])"""
         tracks = self.playlist_manager.get_tracks(playlist)
-        
-        if not tracks:
-            await ctx.send(embed=discord.Embed(
-                title=":x: 해당 이름의 플레이리스트가 비어있거나 존재하지 않습니다.", 
-                color=discord.Color.from_str("#ff6600")
-            ))
-            return
-
+        if not tracks: return await ctx.send(embed=discord.Embed(title=":x: 없음", color=discord.Color.red()))
         view = PlaylistPaginator(tracks, playlist)
-        
         await ctx.send(embed=view.create_embed(), view=view)
 
     @commands.hybrid_command(name="노래삭제", aliases=["삭제", "pdel"])
-    @app_commands.describe(playlist="플리 이름", index="삭제할 곡 번호")
     async def delete_from_playlist(self, ctx, playlist: str, index: int):
-        """플레이리스트에서 특정 곡을 삭제합니다. (= /노래삭제 [플리 이름] [번호])"""
         deleted = self.playlist_manager.delete_song(playlist, index - 1)
-        if deleted:
-            embed = discord.Embed(title=f":wastebasket: 삭제 완료: {deleted['title']}", color=discord.Color.from_str("#ffcc00"))
-            await ctx.send(embed=embed)
-        else:
-            await ctx.send(embed=discord.Embed(title=":warning: 번호가 잘못되었거나 플레이리스트가 없습니다.", color=discord.Color.from_str("#ff6600")))
+        if deleted: await ctx.send(embed=discord.Embed(title=f":wastebasket: 삭제 완료: {deleted['title']}", color=discord.Color.gold()))
+        else: await ctx.send(embed=discord.Embed(title=":warning: 잘못된 입력", color=discord.Color.red()))
 
     @commands.hybrid_command(name="플리재생", aliases=["playlistplay", "pp", "ㅔㅔ"])
-    @app_commands.describe(playlist="플리 이름", mode="재생 모드 (순서대로/셔플)")
-    @app_commands.choices(mode=[
-        app_commands.Choice(name="순서대로", value="순서대로"),
-        app_commands.Choice(name="셔플", value="셔플")
-    ])
+    @app_commands.choices(mode=[app_commands.Choice(name="순서대로", value="순서대로"), app_commands.Choice(name="셔플", value="셔플")])
     async def play_playlist(self, ctx, playlist: str, mode: str = "순서대로"):
-        """플레이리스트의 노래들을 대기열에 일괄 추가하고 재생합니다. (= /플리재생 [플리 이름] [모드])"""
         tracks = self.playlist_manager.get_tracks(playlist, shuffle=(mode == "셔플"))
-        if not tracks:
-            await ctx.send(embed=discord.Embed(title=":x: 해당 플레이리스트가 비어있습니다.", color=discord.Color.from_str("#ff6600")))
-            return
-
+        if not tracks: return await ctx.send(embed=discord.Embed(title=":x: 비어있음", color=discord.Color.red()))
         state = self.get_state(ctx.guild.id)
-        
-        for track in tracks:
-            await state.queue.put({'lazy': True, 'title': track['title'], 'url': track['url']})
-
-        await ctx.send(embed=discord.Embed(
-            title=f":white_check_mark: '{playlist}' 플레이리스트에서 {len(tracks)}곡 대기열 추가 완료! ({mode})", 
-            color=discord.Color.from_str("#1a75ff")
-        ))
-
-        if not state.is_playing and not ctx.voice_client.is_paused():
-            await self.play_next(ctx)
+        for track in tracks: await state.queue.put({'lazy': True, 'title': track['title'], 'url': track['url']})
+        await ctx.send(embed=discord.Embed(title=f":white_check_mark: {len(tracks)}곡 추가 ({mode})", color=discord.Color.green()))
+        if not state.is_playing and not ctx.voice_client.is_paused(): await self.play_next(ctx)
 
     @commands.hybrid_command(name="플리목록", aliases=["pllist"])
     async def list_playlists(self, ctx):
-        """현재 만들어진 모든 플레이리스트 목록과 곡 수를 보여줍니다. (= /플리목록)"""
         playlists = self.playlist_manager.get_all_playlists()
-        
-        if not playlists:
-            await ctx.send(embed=discord.Embed(
-                title=":x: 아직 생성된 플레이리스트가 없습니다.", 
-                description="`/추가 [플리 이름] [노래]` 명령어로 새 플레이리스트를 만들어 보세요!",
-                color=discord.Color.from_str("#ff6600")
-            ))
-            return
-
-        message = ""
-        for idx, (name, count) in enumerate(playlists.items(), start=1):
-            message += f"**{idx}.** 📁 {name} (총 {count}곡)\n"
-
-        embed = discord.Embed(
-            title=f":file_folder: 전체 플레이리스트 목록 (총 {len(playlists)}개)",
-            description=message,
-            color=discord.Color.from_str("#1a75ff")
-        )
-        await ctx.send(embed=embed)
+        if not playlists: return await ctx.send(embed=discord.Embed(title=":x: 없음", color=discord.Color.red()))
+        msg = "".join([f"**{i}.** 📁 {n} ({c}곡)\n" for i, (n, c) in enumerate(playlists.items(), 1)])
+        await ctx.send(embed=discord.Embed(title=f":file_folder: 전체 (총 {len(playlists)}개)", description=msg, color=discord.Color.blue()))
 
     @commands.hybrid_command(name="플리삭제", aliases=["pldelete"])
-    @app_commands.describe(playlist="통째로 삭제할 플레이리스트 이름")
     async def delete_entire_playlist(self, ctx, playlist: str):
-        """플레이리스트 폴더 자체를 통째로 삭제합니다. (= /플리삭제 [플리 이름])"""
-        
-        if playlist not in self.playlist_manager.playlists:
-            embed = discord.Embed(
-                title=":x: 해당 이름의 플레이리스트가 존재하지 않습니다.", 
-                color=discord.Color.from_str("#ff6600")
-            )
-            return await ctx.send(embed=embed)
-
-        warning_embed = discord.Embed(
-            title=":warning: 플레이리스트 영구 삭제 경고",
-            description=f"정말 **'{playlist}'** 플레이리스트를 통째로 삭제하시겠습니까?\n이 작업은 되돌릴 수 없으며, 저장된 모든 곡이 날아갑니다.\n\n삭제를 진행하려면 채팅창에 아래 이름을 정확히 타이핑해 주세요.\n\n`{playlist}`",
-            color=discord.Color.red()
-        )
-        warning_embed.set_footer(text="⏳ 60초 이내에 입력하지 않으면 자동으로 취소됩니다.")
-        await ctx.send(embed=warning_embed)
-
-        def check(m):
-            return m.author == ctx.author and m.channel == ctx.channel
-
+        if playlist not in self.playlist_manager.playlists: return await ctx.send(embed=discord.Embed(title=":x: 없음", color=discord.Color.red()))
+        await ctx.send(embed=discord.Embed(title=":warning: 영구 삭제", description=f"`{playlist}` 입력 시 삭제", color=discord.Color.red()))
         try:
-            msg = await self.bot.wait_for('message', timeout=60.0, check=check)
-        except asyncio.TimeoutError:
-            timeout_embed = discord.Embed(
-                title=":timer: 시간이 초과되어 삭제가 취소되었습니다.", 
-                color=discord.Color.green()
-            )
-            return await ctx.send(embed=timeout_embed)
-
-        if msg.content == playlist:
-            self.playlist_manager.delete_playlist(playlist)
-            success_embed = discord.Embed(
-                title=f":wastebasket: '{playlist}' 플레이리스트가 완전히 삭제되었습니다.", 
-                color=discord.Color.from_str("#ffcc00")
-            )
-            await ctx.send(embed=success_embed)
-        else:
-            cancel_embed = discord.Embed(
-                title=":x: 이름이 일치하지 않아 삭제가 안전하게 취소되었습니다.", 
-                color=discord.Color.green()
-            )
-            await ctx.send(embed=cancel_embed)
-
-    @play_playlist.before_invoke
-    async def ensure_voice_playlist(self, ctx):
-        if not (ctx.author.voice and ctx.author.voice.channel):
-            embed=discord.Embed(
-                title=":warning: 사용자가 음성 채널에 연결되어 있지 않습니다 :warning:",
-                color=discord.Color.from_str("#ff6600")
-            )
-            await ctx.send(embed=embed)
-            raise commands.CommandError("Author not connected to a voice channel.")
-        elif ctx.voice_client is None:
-            if ctx.author.voice:
-                await ctx.author.voice.channel.connect()
-
-    @commands.hybrid_command(name="제외", aliases=["remove", "rm"])
-    @app_commands.describe(index="대기열에서 제외할 노래 번호")
-    async def remove(self, ctx, index: int):
-        """대기열에 있는 곡 삭제. (= /제외 [번호]) [= !remove, rm]"""
-        state = self.get_state(ctx.guild.id)
-        if not state.queue.empty():
-            temp_queue = list(state.queue._queue)
-            if 0 < index <= len(temp_queue):
-                removed = temp_queue.pop(index - 1)
-
-                title = removed['title'] if isinstance(removed, dict) else removed.title
-
-                embed=discord.Embed(
-                    title=f':wastebasket: 삭제: {title} :wastebasket:',
-                    color=discord.Color.from_str("#ffcc00")
-                )
-                await ctx.send(embed=embed)
-                
-                state.queue = asyncio.Queue()
-                for item in temp_queue:
-                    await state.queue.put(item)
-            else:
-                embed = discord.Embed(
-                title=":warning: 유효한 번호를 입력하세요 :warning:",
-                color=discord.Color.from_str("#ff6600")
-                )
-                await ctx.send(embed=embed)
-        else:
-            embed = discord.Embed(
-                title=":question: 대기열이 비어 있습니다 :grey_question:",
-                color=discord.Color.from_str("#ff6600")
-            )
-            await ctx.send(embed=embed)
-
-    @commands.hybrid_command(name="초기화", aliases=["clearqueue", "대기열비우기", "cq", "clear"])
-    async def clear_queue(self, ctx):
-        """대기열에 있는 모든 곡을 한 번에 삭제합니다. (= /초기화) [= !cq, !clearqueue, !clear]"""
-        state = self.get_state(ctx.guild.id)
-        
-        if state.queue.empty():
-            embed = discord.Embed(
-                title=":question: 대기열이 이미 비어 있습니다 :grey_question:",
-                color=discord.Color.from_str("#ff6600")
-            )
-            return await ctx.send(embed=embed)
-
-        cleared_count = state.queue.qsize()
-        
-        state.queue = asyncio.Queue()
-        
-        embed = discord.Embed(
-            title=f":wastebasket: 대기열에 있던 {cleared_count}곡을 모두 삭제했습니다!",
-            description="현재 재생 중인 곡은 계속 재생됩니다.",
-            color=discord.Color.from_str("#ffcc00")
-        )
-        await ctx.send(embed=embed)
-
-    @commands.hybrid_command(name="셔플", aliases=["shuffle", "섞기", "sf", "ㄴㄹ"])
-    async def shuffle_queue(self, ctx):
-        """현재 대기열에 있는 곡들의 순서를 무작위로 섞습니다. (= /셔플) [= !shuffle, !sf]"""
-        state = self.get_state(ctx.guild.id)
-        
-        if state.queue.empty():
-            embed = discord.Embed(
-                title=":question: 대기열이 비어 있어 섞을 곡이 없습니다 :grey_question:",
-                color=discord.Color.from_str("#ff6600")
-            )
-            return await ctx.send(embed=embed)
-
-        temp_queue = list(state.queue._queue)
-        random.shuffle(temp_queue)
-        
-        state.queue = asyncio.Queue()
-        for item in temp_queue:
-            await state.queue.put(item)
-            
-        embed = discord.Embed(
-            title=f":twisted_rightwards_arrows: 대기열에 있는 {len(temp_queue)}곡의 순서를 무작위로 섞었습니다!",
-            description="`!대기열` 명령어로 섞인 순서를 확인해 보세요.",
-            color=discord.Color.from_str("#1a75ff")
-        )
-        await ctx.send(embed=embed)
-
-    @commands.hybrid_command(name="음량", aliases=["volume", "볼륨", "vol"])
-    @app_commands.describe(volume="(옵션) 0 - 100%")
-    async def volume(self, ctx, volume: int = None):
-        """음량 조절 또는 현재 음량 확인(= /음량 [(선택사항)1 ~ 100 (기본값 30)]) [= !volume, !볼륨]"""
-        if ctx.voice_client is None:
-            embed = discord.Embed(
-                title=":warning: 봇이 음성 채널에 연결되어 있지 않습니다 :warning:",
-                color=discord.Color.from_str("#ff6600")
-            )
-            return await ctx.send(embed=embed)
-        
-        if ctx.voice_client.source is None:
-            embed = discord.Embed(
-                title=":question: 현재 재생 중인 음악이 없습니다 :grey_question:",
-                color=discord.Color.from_str("#ff6600")
-            )
-            return await ctx.send(embed=embed)
-        
-        if volume is not None:
-            volume = max(0, min(100, volume))
-            ctx.voice_client.source.volume = volume / 100
-            embed = discord.Embed(
-            title=f":sound: 음량을 {volume}%로 변경했습니다 :level_slider:",
-            color=discord.Color.from_str("#ffcc00")
-            )
-            await ctx.send(embed=embed)
-        else:
-            embed = discord.Embed(
-            title=f":sound: 현재 음량: {ctx.voice_client.source.volume * 100}% :level_slider:",
-            color=discord.Color.from_str("#ffcc00")
-            )
-            await ctx.send(embed=embed)
-
-    @commands.hybrid_command(name="퇴장", aliases=["quit"])
-    async def stop(self, ctx):
-        """재생을 중단하고 음성채널 퇴장 (= /퇴장) [= !quit]"""
-        if ctx.voice_client is None:
-            embed = discord.Embed(
-                title=":warning: 봇이 음성 채널에 연결되어 있지 않습니다 :warning:",
-                color=discord.Color.from_str("#ff6600")
-            )
-            return await ctx.send(embed=embed)
-        
-        state = self.get_state(ctx.guild.id)
-        state.clear()
-        await ctx.voice_client.disconnect()
-
-        embed = discord.Embed(
-            title=":door: 음성 채널에서 퇴장했습니다 :robot:",
-            color=discord.Color.from_str("#ffcc00")
-        )
-        await ctx.send(embed=embed)
+            msg = await self.bot.wait_for('message', timeout=60.0, check=lambda m: m.author == ctx.author and m.channel == ctx.channel)
+            if msg.content == playlist:
+                self.playlist_manager.delete_playlist(playlist)
+                await ctx.send(embed=discord.Embed(title=":wastebasket: 삭제 완료", color=discord.Color.gold()))
+            else: await ctx.send(embed=discord.Embed(title=":x: 취소됨", color=discord.Color.green()))
+        except asyncio.TimeoutError: await ctx.send(embed=discord.Embed(title=":timer: 취소됨", color=discord.Color.green()))
 
     @play.before_invoke
+    @play_playlist.before_invoke
     async def ensure_voice(self, ctx):
         if not (ctx.author.voice and ctx.author.voice.channel):
-            embed=discord.Embed(
-                title=":warning: 사용자가 음성 채널에 연결되어 있지 않습니다 :warning:",
-                color=discord.Color.from_str("#ff6600")
-            )
-            await ctx.send(embed=embed)
-            raise commands.CommandError("Author not connected to a voice channel.")
-        elif ctx.voice_client is None:
-            if ctx.author.voice:
-                await ctx.author.voice.channel.connect()
-            else:
-                embed=discord.Embed(
-                    title=":warning: 사용자가 음성 채널에 연결되어 있지 않습니다 :warning:",
-                    color=discord.Color.from_str("#ff6600")
-                )
-                await ctx.send(embed=embed)
-                raise commands.CommandError("Author not connected to a voice channel.")
-
+            await ctx.send(embed=discord.Embed(title=":warning: 음성채널 연결 필요", color=discord.Color.red()))
+            raise commands.CommandError("No Voice")
+        elif not ctx.voice_client: await ctx.author.voice.channel.connect()
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(Music(bot))
