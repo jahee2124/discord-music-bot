@@ -25,11 +25,6 @@ ytdl_format_options = {
     'default_search': 'auto',
     'source_address': '0.0.0.0',
     'compat_opts': ['no-youtube-unavailable-videos'],
-    'js_runtimes': {
-        'node': {
-            'path': '/opt/homebrew/bin/node'
-        }
-    }, #Node.js 런타임 노드 지정
 }
 
 ffmpeg_options = {
