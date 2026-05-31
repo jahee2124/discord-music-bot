@@ -453,6 +453,29 @@ class Music(commands.Cog):
             await ctx.send(embed=embed)
             if not state.is_playing and not ctx.voice_client.is_paused(): await self.play_next(ctx)
 
+    @commands.hybrid_command(name="우선재생", aliases=["playfirst", "pf", "ㅔㄹ"])
+    async def play_top(self, ctx, *, query):
+        """대기열 맨 앞에 음악을 추가합니다. (= /우선재생 [검색어]) [= !playfirst, !pf, !ㅔㄹ]"""
+        state = self.get_state(ctx.guild.id)
+        async with ctx.typing():
+            player = await YTDLSource.from_url(query, loop=self.bot.loop, stream=True, volume=state.volume)
+            if player is None: return await ctx.send(embed=discord.Embed(title=":question: 노래를 가져오지 못했습니다.", color=discord.Color.from_str("#ff6600")))
+            
+            temp_list = [player] + list(state.queue._queue)
+            state.queue = asyncio.Queue()
+            for item in temp_list: 
+                await state.queue.put(item)
+            
+            embed = discord.Embed(
+                title=':arrow_up: 우선 재생 추가 완료 :cd:', 
+                description=f'[{player.title}]({player.webpage_url})\n> `다음 곡으로 바로 재생됩니다.`', 
+                color=discord.Color.from_str("#ff00ff")
+            )
+            await ctx.send(embed=embed)
+            
+            if not state.is_playing and not ctx.voice_client.is_paused(): 
+                await self.play_next(ctx)
+
     async def play_next(self, ctx):
         state = self.get_state(ctx.guild.id)
         if state.update_task: state.update_task.cancel()
@@ -758,6 +781,7 @@ class Music(commands.Cog):
 
     @play.before_invoke
     @play_playlist.before_invoke
+    @play_top.before_invoke
     async def ensure_voice(self, ctx):
         if not (ctx.author.voice and ctx.author.voice.channel):
             await ctx.send(embed=discord.Embed(title=":warning: 음성채널 연결 필요", color=discord.Color.red()))
