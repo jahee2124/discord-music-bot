@@ -306,6 +306,10 @@ class MusicController(discord.ui.View):
             for i, field in enumerate(embed.fields):
                 if "볼륨" in field.name:
                     embed.set_field_at(i, name=field.name, value=f"**{int(state.volume * 100)}%**", inline=True)
+
+            if state.np_message:
+                state.np_message.embeds[0] = embed
+
             await interaction.response.edit_message(embed=embed, view=self)
         else:
             await interaction.response.defer()
@@ -320,6 +324,10 @@ class MusicController(discord.ui.View):
             for i, field in enumerate(embed.fields):
                 if "볼륨" in field.name:
                     embed.set_field_at(i, name=field.name, value=f"**{int(state.volume * 100)}%**", inline=True)
+
+            if state.np_message:
+                state.np_message.embeds[0] = embed
+                
             await interaction.response.edit_message(embed=embed, view=self)
         else:
             await interaction.response.defer()
