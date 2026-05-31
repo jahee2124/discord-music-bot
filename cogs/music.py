@@ -24,11 +24,6 @@ ytdl_format_options = {
     'no_warnings': False,
     'default_search': 'auto',
     'source_address': '0.0.0.0',
-    'extractor_args': {
-        'youtube': {
-            'player_client': ['default', 'mweb'],
-        }
-    },
     'compat_opts': ['no-youtube-unavailable-videos'],
 }
 
@@ -360,16 +355,29 @@ class YTDLSource(discord.PCMVolumeTransformer):
         loop = loop or asyncio.get_event_loop()
         is_url = query.startswith(('http://', 'https://'))
         search_query = query if is_url else f"ytsearch:{query}"
-        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(search_query, download=not stream))
-        if 'entries' in data:
-            if len(data['entries']) > 0 and data['entries'][0] is not None: data = data['entries'][0]
-            else: return None
+        
+        try:
+            data = await loop.run_in_executor(None, lambda: ytdl.extract_info(search_query, download=not stream))
+        except Exception as e:
+            print(f"추출 에러: {e}")
+            return None
+
         if data is None: return None
+
+        if 'entries' in data:
+            entries_list = list(data['entries'])
+            if len(entries_list) > 0 and entries_list[0] is not None: 
+                data = entries_list[0]
+            else: 
+                return None
+                
         url = data.get('url')
         if not url: return None
+        
         url = url if stream else ytdl.prepare_filename(data)
         b_opts = ffmpeg_options['before_options']
         if seek > 0: b_opts = f"-ss {seek} " + b_opts
+        
         return cls(discord.FFmpegPCMAudio(url, before_options=b_opts, options=ffmpeg_options['options']), data=data, volume=volume)
 
     @classmethod
@@ -542,6 +550,7 @@ class Music(commands.Cog):
     async def play_check(self, ctx, error):
         state = self.get_state(ctx.guild.id)
         if error: print(f'에러: {error}')
+        
         if state.ignore_play_check > 0:
             state.ignore_play_check -= 1
             return
@@ -568,7 +577,10 @@ class Music(commands.Cog):
                 await state.queue.put(lazy_item)
 
         if state.queue.empty() and getattr(state, 'autoplay', False) and not is_prev and state.current:
-            await self._process_autoplay(ctx)
+            if not getattr(state, 'autoplay_next', None):
+                await self._process_autoplay(ctx)
+
+        self.bot.loop.create_task(self.play_next(ctx))
 
     async def _process_autoplay(self, ctx):
         state = self.get_state(ctx.guild.id)
