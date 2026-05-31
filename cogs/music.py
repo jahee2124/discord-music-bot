@@ -192,6 +192,7 @@ class GuildMusicState:
         self.np_message = None
         self.update_task = None
         self.autoplay = False
+        self.autoplay_next = None
 
     def get_current_time(self):
         if not self.is_playing or self.start_time == 0: return self.seek_offset
@@ -204,6 +205,7 @@ class GuildMusicState:
         self.current = None
         self.is_playing = False
         self.autoplay = False
+        self.autoplay_next = None
         self.force_skip_count = 0
         self.force_prev_count = 0
         self.ignore_play_check = 0
@@ -335,6 +337,9 @@ class MusicController(discord.ui.View):
         if state.autoplay:
             button.label = "자동재생: 켬"
             button.style = discord.ButtonStyle.success
+
+            if state.queue.empty() and state.is_playing:
+                self.cog.bot.loop.create_task(self.cog._process_autoplay(self.ctx))
         else:
             button.label = "자동재생: 끔"
             button.style = discord.ButtonStyle.secondary
@@ -479,8 +484,18 @@ class Music(commands.Cog):
     async def play_next(self, ctx):
         state = self.get_state(ctx.guild.id)
         if state.update_task: state.update_task.cancel()
+        
+        item = None
+        
         if not state.queue.empty():
             item = await state.queue.get()
+            state.autoplay_next = None 
+            
+        elif getattr(state, 'autoplay', False) and getattr(state, 'autoplay_next', None):
+            item = state.autoplay_next
+            state.autoplay_next = None
+
+        if item:
             if isinstance(item, dict) and item.get('lazy'):
                 try: state.current = await YTDLSource.from_url(item['url'], loop=self.bot.loop, stream=True, volume=state.volume)
                 except Exception as e:
@@ -500,10 +515,13 @@ class Music(commands.Cog):
 
             view = MusicController(self, ctx)
             total_sec = state.current.data.get("duration") or 0
-            embed=discord.Embed(title=f':musical_note: NOW PLAYING', description=create_progress_bar(0, total_sec), color=discord.Color.from_str("#00ff00"))
+            embed = discord.Embed(title=f':musical_note: NOW PLAYING', description=create_progress_bar(0, total_sec), color=discord.Color.from_str("#00ff00"))
             embed.set_author(name=state.current.title, url=state.current.webpage_url)
             
-            embed.add_field(name=":scroll: 대기열", value=f"**{state.queue.qsize()}곡** 대기중", inline=True)
+            queue_text = f"**{state.queue.qsize()}곡** 대기중"
+            if state.queue.empty() and getattr(state, 'autoplay', False):
+                queue_text = "♾️ 자동재생 대기중"
+            embed.add_field(name=":scroll: 대기열", value=queue_text, inline=True)
             embed.add_field(name=":sound: 볼륨", value=f"**{int(state.volume * 100)}%**", inline=True)
             
             thumbnail = state.current.data.get("thumbnail")
@@ -514,6 +532,9 @@ class Music(commands.Cog):
             
             state.np_message = await ctx.send(embed=embed, view=view)
             state.update_task = self.bot.loop.create_task(self.progress_update_task(ctx))
+
+            if state.queue.empty() and getattr(state, 'autoplay', False):
+                self.bot.loop.create_task(self._process_autoplay(ctx))
         else:
             state.current = None
             state.is_playing = False
@@ -549,9 +570,6 @@ class Music(commands.Cog):
         if state.queue.empty() and getattr(state, 'autoplay', False) and not is_prev and state.current:
             await self._process_autoplay(ctx)
 
-        state.is_playing = False
-        await self.play_next(ctx)
-
     async def _process_autoplay(self, ctx):
         state = self.get_state(ctx.guild.id)
         if not state.current: return
@@ -579,7 +597,7 @@ class Music(commands.Cog):
                 if not url and entry.get('id'): url = f"https://www.youtube.com/watch?v={entry.get('id')}"
                 
                 if url and url not in history_urls and entry.get('title') not in ["[Private video]", "[Deleted video]"]:
-                    await state.queue.put({'lazy': True, 'title': entry.get('title'), 'url': url})
+                    state.autoplay_next = {'lazy': True, 'title': entry.get('title'), 'url': url}
                     break
         except Exception as e:
             print(f"자동재생 로드 오류: {e}")
