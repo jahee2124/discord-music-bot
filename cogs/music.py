@@ -327,7 +327,7 @@ class MusicController(discord.ui.View):
 
             if state.np_message:
                 state.np_message.embeds[0] = embed
-                
+
             await interaction.response.edit_message(embed=embed, view=self)
         else:
             await interaction.response.defer()
@@ -589,7 +589,11 @@ class Music(commands.Cog):
 
         if state.queue.empty() and getattr(state, 'autoplay', False) and not is_prev and state.current:
             if not getattr(state, 'autoplay_next', None):
-                await self._process_autoplay(ctx)
+                while getattr(state, 'is_fetching_autoplay', False):
+                    await asyncio.sleep(0.5)
+                
+                if not getattr(state, 'autoplay_next', None):
+                    await self._process_autoplay(ctx)
 
         self.bot.loop.create_task(self.play_next(ctx))
 
@@ -597,18 +601,21 @@ class Music(commands.Cog):
         state = self.get_state(ctx.guild.id)
         if not state.current: return
         
-        video_id = state.current.data.get('id')
-        if not video_id: return
-        
-        mix_url = f"https://www.youtube.com/watch?v={video_id}&list=RD{video_id}"
-        
-        pl_options = ytdl_format_options.copy()
-        pl_options.update({'extract_flat': True, 'noplaylist': False})
+        if getattr(state, 'is_fetching_autoplay', False): return
+        state.is_fetching_autoplay = True
         
         try:
+            video_id = state.current.data.get('id')
+            if not video_id: return
+            
+            mix_url = f"https://www.youtube.com/watch?v={video_id}&list=RD{video_id}"
+            
+            pl_options = ytdl_format_options.copy()
+            pl_options.update({'extract_flat': True, 'noplaylist': False})
+            
             info = await self.bot.loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(pl_options).extract_info(mix_url, download=False))
             if not info or 'entries' not in info: return
-                
+                    
             entries = list(info['entries'])
             
             history_urls = {h.get('url') for h in state.history if h.get('url')}
@@ -624,6 +631,8 @@ class Music(commands.Cog):
                     break
         except Exception as e:
             print(f"자동재생 로드 오류: {e}")
+        finally:
+            state.is_fetching_autoplay = False
 
     @commands.hybrid_command(name="스킵", aliases=["skip", "s"])
     async def skip(self, ctx):
