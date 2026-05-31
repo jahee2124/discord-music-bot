@@ -191,6 +191,7 @@ class GuildMusicState:
         
         self.np_message = None
         self.update_task = None
+        self.autoplay = False
 
     def get_current_time(self):
         if not self.is_playing or self.start_time == 0: return self.seek_offset
@@ -202,6 +203,7 @@ class GuildMusicState:
         self.history.clear()
         self.current = None
         self.is_playing = False
+        self.autoplay = False
         self.force_skip_count = 0
         self.force_prev_count = 0
         self.ignore_play_check = 0
@@ -225,6 +227,12 @@ class MusicController(discord.ui.View):
                     child.label = "반복: 현재 곡"; child.style = discord.ButtonStyle.success
                 elif state.loop_mode == 2:
                     child.label = "반복: 대기열"; child.style = discord.ButtonStyle.primary
+
+            elif getattr(child, "custom_id", None) == "mc_autoplay":
+                if getattr(state, "autoplay", False):
+                    child.label = "자동재생: 켬"; child.style = discord.ButtonStyle.success
+                else:
+                    child.label = "자동재생: 끔"; child.style = discord.ButtonStyle.secondary
 
     @discord.ui.button(emoji="⏮️", style=discord.ButtonStyle.secondary, custom_id="mc_prev", row=0)
     async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -318,6 +326,20 @@ class MusicController(discord.ui.View):
             await interaction.response.edit_message(embed=embed, view=self)
         else:
             await interaction.response.defer()
+
+    @discord.ui.button(label="자동재생: 끔", emoji="♾️", style=discord.ButtonStyle.secondary, custom_id="mc_autoplay", row=1)
+    async def autoplay_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        state = self.cog.get_state(self.ctx.guild.id)
+        state.autoplay = not getattr(state, 'autoplay', False)
+        
+        if state.autoplay:
+            button.label = "자동재생: 켬"
+            button.style = discord.ButtonStyle.success
+        else:
+            button.label = "자동재생: 끔"
+            button.style = discord.ButtonStyle.secondary
+            
+        await interaction.response.edit_message(view=self)
 
 
 class YTDLSource(discord.PCMVolumeTransformer):
@@ -501,8 +523,43 @@ class Music(commands.Cog):
             elif state.loop_mode == 2:
                 await state.queue.put(lazy_item)
 
+        if state.queue.empty() and getattr(state, 'autoplay', False) and not is_prev and state.current:
+            await self._process_autoplay(ctx)
+
         state.is_playing = False
         await self.play_next(ctx)
+
+    async def _process_autoplay(self, ctx):
+        state = self.get_state(ctx.guild.id)
+        if not state.current: return
+        
+        video_id = state.current.data.get('id')
+        if not video_id: return
+        
+        mix_url = f"https://www.youtube.com/watch?v={video_id}&list=RD{video_id}"
+        
+        pl_options = ytdl_format_options.copy()
+        pl_options.update({'extract_flat': True, 'noplaylist': False})
+        
+        try:
+            info = await self.bot.loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(pl_options).extract_info(mix_url, download=False))
+            if not info or 'entries' not in info: return
+                
+            entries = list(info['entries'])
+            
+            history_urls = {h.get('url') for h in state.history if h.get('url')}
+            history_urls.add(state.current.webpage_url)
+            
+            for entry in entries:
+                if not entry: continue
+                url = entry.get('url') or entry.get('webpage_url')
+                if not url and entry.get('id'): url = f"https://www.youtube.com/watch?v={entry.get('id')}"
+                
+                if url and url not in history_urls and entry.get('title') not in ["[Private video]", "[Deleted video]"]:
+                    await state.queue.put({'lazy': True, 'title': entry.get('title'), 'url': url})
+                    break
+        except Exception as e:
+            print(f"자동재생 로드 오류: {e}")
 
     @commands.hybrid_command(name="스킵", aliases=["skip", "s"])
     async def skip(self, ctx):
@@ -593,6 +650,22 @@ class Music(commands.Cog):
             self.get_state(ctx.guild.id).clear()
             await ctx.voice_client.disconnect()
             await ctx.send(embed=discord.Embed(title=":door: 퇴장했습니다.", color=discord.Color.from_str("#ffcc00")))
+
+    @commands.hybrid_command(name="자동재생", aliases=["autoplay", "ap", "ㅈㄷㅈㅅ"])
+    async def toggle_autoplay(self, ctx):
+        """대기열이 끝났을 때 유튜브 믹스를 기반으로 자동 재생합니다. (= /자동재생) [= !ap]"""
+        state = self.get_state(ctx.guild.id)
+        state.autoplay = not getattr(state, 'autoplay', False)
+        
+        status = "켜짐 🟢" if state.autoplay else "꺼짐 🔴"
+        color = discord.Color.green() if state.autoplay else discord.Color.red()
+        
+        embed = discord.Embed(
+            title=f":infinity: 자동 재생이 {status}", 
+            description="대기열의 마지막 곡이 끝나면 유사한 곡을 찾아 재생합니다." if state.autoplay else "더 이상 곡을 자동으로 추가하지 않습니다.",
+            color=color
+        )
+        await ctx.send(embed=embed)
 
     @commands.hybrid_command(name="추가", aliases=["add", "pladd", "ㅁㅇㅇ"])
     async def save_to_playlist(self, ctx, playlist: str, *, query: str):
