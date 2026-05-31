@@ -519,7 +519,10 @@ class Music(commands.Cog):
             state.total_paused_time = 0
             state.seek_offset = 0
             
-            ctx.voice_client.play(state.current, after=lambda e: asyncio.run_coroutine_threadsafe(self.play_check(ctx, e), self.bot.loop))
+            try:
+                ctx.voice_client.play(state.current, after=lambda e: asyncio.run_coroutine_threadsafe(self.play_check(ctx, e), self.bot.loop))
+            except discord.errors.ClientException:
+                return
 
             view = MusicController(self, ctx)
             total_sec = state.current.data.get("duration") or 0
