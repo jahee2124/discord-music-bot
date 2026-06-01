@@ -532,6 +532,9 @@ class Music(commands.Cog):
             except discord.errors.ClientException:
                 return
 
+            if state.queue.empty() and getattr(state, 'autoplay', False):
+                self.bot.loop.create_task(self._process_autoplay(ctx))
+
             view = MusicController(self, ctx)
             total_sec = state.current.data.get("duration") or 0
             embed = discord.Embed(title=f':musical_note: NOW PLAYING', description=create_progress_bar(0, total_sec), color=discord.Color.from_str("#00ff00"))
@@ -551,9 +554,6 @@ class Music(commands.Cog):
             
             state.np_message = await ctx.send(embed=embed, view=view)
             state.update_task = self.bot.loop.create_task(self.progress_update_task(ctx))
-
-            if state.queue.empty() and getattr(state, 'autoplay', False):
-                self.bot.loop.create_task(self._process_autoplay(ctx))
         else:
             state.current = None
             state.is_playing = False
@@ -589,8 +589,10 @@ class Music(commands.Cog):
 
         if state.queue.empty() and getattr(state, 'autoplay', False) and not is_prev and state.current:
             if not getattr(state, 'autoplay_next', None):
-                while getattr(state, 'is_fetching_autoplay', False):
+                wait_count = 0
+                while getattr(state, 'is_fetching_autoplay', False) and wait_count < 20:
                     await asyncio.sleep(0.5)
+                    wait_count += 1
                 
                 if not getattr(state, 'autoplay_next', None):
                     await self._process_autoplay(ctx)
