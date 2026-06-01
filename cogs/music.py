@@ -188,6 +188,8 @@ class GuildMusicState:
         self.update_task = None
         self.autoplay = False
         self.autoplay_next = None
+        self.is_processing_next = False
+        self.is_fetching_autoplay = False
 
     def get_current_time(self):
         if not self.is_playing or self.start_time == 0: return self.seek_offset
@@ -278,11 +280,17 @@ class MusicController(discord.ui.View):
 
     @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary, custom_id="mc_next", row=0)
     async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
         state = self.cog.get_state(self.ctx.guild.id)
+        
+        if getattr(state, 'is_processing_next', False):
+            return await interaction.response.send_message("⏳ 곡을 불러오는 중입니다. 잠시만 기다려주세요!", ephemeral=True)
+            
+        await interaction.response.defer()
         state.force_skip_count += 1
-        if self.ctx.voice_client and self.ctx.voice_client.is_playing(): self.ctx.voice_client.stop()
-        else: await self.cog.play_next(self.ctx)
+        if self.ctx.voice_client and self.ctx.voice_client.is_playing(): 
+            self.ctx.voice_client.stop()
+        else: 
+            await self.cog.play_next(self.ctx)
 
     @discord.ui.button(label="반복: 끔", emoji="🔁", style=discord.ButtonStyle.secondary, custom_id="mc_loop", row=1)
     async def loop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -499,64 +507,87 @@ class Music(commands.Cog):
 
     async def play_next(self, ctx):
         state = self.get_state(ctx.guild.id)
-        if state.update_task: state.update_task.cancel()
         
-        item = None
+        if getattr(state, 'is_processing_next', False):
+            return
+        state.is_processing_next = True
         
-        if not state.queue.empty():
-            item = await state.queue.get()
-            state.autoplay_next = None 
+        try:
+            if state.update_task: state.update_task.cancel()
             
-        elif getattr(state, 'autoplay', False) and getattr(state, 'autoplay_next', None):
-            item = state.autoplay_next
-            state.autoplay_next = None
+            item = None
+            
+            if not state.queue.empty():
+                item = await state.queue.get()
+                state.autoplay_next = None 
+                
+            elif getattr(state, 'autoplay', False):
+                if getattr(state, 'is_fetching_autoplay', False):
+                    wait_count = 0
+                    while getattr(state, 'is_fetching_autoplay', False) and wait_count < 30:
+                        await asyncio.sleep(0.5)
+                        wait_count += 1
+                        
+                if not getattr(state, 'autoplay_next', None) and state.current:
+                    await self._process_autoplay(ctx)
+                    
+                if getattr(state, 'autoplay_next', None):
+                    item = state.autoplay_next
+                    state.autoplay_next = None
 
-        if item:
-            if isinstance(item, dict) and item.get('lazy'):
-                try: state.current = await YTDLSource.from_url(item['url'], loop=self.bot.loop, stream=True, volume=state.volume)
-                except Exception as e:
-                    await ctx.send(embed=discord.Embed(title=f":warning: 재생 불가: {item['title']}", color=discord.Color.red()))
-                    return self.bot.loop.create_task(self.play_check(ctx, e))
-            else: state.current = item
-            
-            if state.current is None: return self.bot.loop.create_task(self.play_check(ctx, Exception("곡 정보를 불러올 수 없습니다.")))
+            if item:
+                if isinstance(item, dict) and item.get('lazy'):
+                    try: 
+                        state.current = await YTDLSource.from_url(item['url'], loop=self.bot.loop, stream=True, volume=state.volume)
+                    except Exception as e:
+                        await ctx.send(embed=discord.Embed(title=f":warning: 재생 불가: {item['title']}", color=discord.Color.red()))
+                        self.bot.loop.create_task(self.play_check(ctx, e))
+                        return
+                else: 
+                    state.current = item
+                
+                if state.current is None: 
+                    self.bot.loop.create_task(self.play_check(ctx, Exception("곡 정보를 불러올 수 없습니다.")))
+                    return
 
-            state.is_playing = True
-            state.start_time = time.time()
-            state.pause_time = 0
-            state.total_paused_time = 0
-            state.seek_offset = 0
-            
-            try:
-                ctx.voice_client.play(state.current, after=lambda e: asyncio.run_coroutine_threadsafe(self.play_check(ctx, e), self.bot.loop))
-            except discord.errors.ClientException:
-                return
+                state.is_playing = True
+                state.start_time = time.time()
+                state.pause_time = 0
+                state.total_paused_time = 0
+                state.seek_offset = 0
+                
+                try:
+                    ctx.voice_client.play(state.current, after=lambda e: asyncio.run_coroutine_threadsafe(self.play_check(ctx, e), self.bot.loop))
+                except discord.errors.ClientException:
+                    return
 
-            if state.queue.empty() and getattr(state, 'autoplay', False):
-                self.bot.loop.create_task(self._process_autoplay(ctx))
+                if state.queue.empty() and getattr(state, 'autoplay', False):
+                    self.bot.loop.create_task(self._process_autoplay(ctx))
 
-            view = MusicController(self, ctx)
-            total_sec = state.current.data.get("duration") or 0
-            embed = discord.Embed(title=f':musical_note: NOW PLAYING', description=create_progress_bar(0, total_sec), color=discord.Color.from_str("#00ff00"))
-            embed.set_author(name=state.current.title, url=state.current.webpage_url)
-            
-            queue_text = f"**{state.queue.qsize()}곡** 대기중"
-            if state.queue.empty() and getattr(state, 'autoplay', False):
-                queue_text = "♾️ 자동재생 대기중"
-            embed.add_field(name=":scroll: 대기열", value=queue_text, inline=True)
-            embed.add_field(name=":sound: 볼륨", value=f"**{int(state.volume * 100)}%**", inline=True)
-            
-            thumbnail = state.current.data.get("thumbnail")
-            if not thumbnail:
-                thumbnails = state.current.data.get("thumbnails") or []
-                thumbnail = thumbnails[-1]["url"] if thumbnails else None
-            if thumbnail: embed.set_thumbnail(url=thumbnail)
-            
-            state.np_message = await ctx.send(embed=embed, view=view)
-            state.update_task = self.bot.loop.create_task(self.progress_update_task(ctx))
-        else:
-            state.current = None
-            state.is_playing = False
+                view = MusicController(self, ctx)
+                total_sec = state.current.data.get("duration") or 0
+                embed = discord.Embed(title=f':musical_note: NOW PLAYING', description=create_progress_bar(0, total_sec), color=discord.Color.from_str("#00ff00"))
+                embed.set_author(name=state.current.title, url=state.current.webpage_url)
+                
+                queue_text = f"**{state.queue.qsize()}곡** 대기중"
+                if state.queue.empty() and getattr(state, 'autoplay', False):
+                    queue_text = "♾️ 자동재생 대기중"
+                embed.add_field(name=":scroll: 대기열", value=queue_text, inline=True)
+                embed.add_field(name=":sound: 볼륨", value=f"**{int(state.volume * 100)}%**", inline=True)
+                
+                thumbnail = state.current.data.get("thumbnail")
+                if not thumbnail:
+                    thumbnails = state.current.data.get("thumbnails") or []
+                    thumbnail = thumbnails[-1]["url"] if thumbnails else None
+                if thumbnail: embed.set_thumbnail(url=thumbnail)
+                
+                state.np_message = await ctx.send(embed=embed, view=view)
+                state.update_task = self.bot.loop.create_task(self.progress_update_task(ctx))
+            else:
+                state.current = None
+                state.is_playing = False
+        finally:
+            state.is_processing_next = False
 
     async def play_check(self, ctx, error):
         state = self.get_state(ctx.guild.id)
@@ -586,16 +617,6 @@ class Music(commands.Cog):
                 for i in temp_list: await state.queue.put(i)
             elif state.loop_mode == 2:
                 await state.queue.put(lazy_item)
-
-        if state.queue.empty() and getattr(state, 'autoplay', False) and not is_prev and state.current:
-            if not getattr(state, 'autoplay_next', None):
-                wait_count = 0
-                while getattr(state, 'is_fetching_autoplay', False) and wait_count < 20:
-                    await asyncio.sleep(0.5)
-                    wait_count += 1
-                
-                if not getattr(state, 'autoplay_next', None):
-                    await self._process_autoplay(ctx)
 
         self.bot.loop.create_task(self.play_next(ctx))
 
@@ -642,6 +663,10 @@ class Music(commands.Cog):
     async def skip(self, ctx):
         """현재 재생중인 노래 스킵 (= /스킵) [= !skip, !s]"""
         state = self.get_state(ctx.guild.id)
+        
+        if getattr(state, 'is_processing_next', False):
+            return await ctx.send(embed=discord.Embed(title=":hourglass: 곡을 불러오는 중입니다. 잠시만 기다려주세요!", color=discord.Color.from_str("#ffcc00")))
+            
         if ctx.voice_client and ctx.voice_client.is_playing():
             state.force_skip_count += 1
             ctx.voice_client.stop()
