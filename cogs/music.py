@@ -168,6 +168,7 @@ class QueuePaginator(discord.ui.View):
 class GuildMusicState:
     def __init__(self):
         self.queue = asyncio.Queue()
+        self.autoplay_queue = asyncio.Queue()
         self.current = None
         self.is_playing = False
         
@@ -187,7 +188,7 @@ class GuildMusicState:
         self.np_message = None
         self.update_task = None
         self.autoplay = False
-        self.autoplay_next = None
+        
         self.is_processing_next = False
         self.is_fetching_autoplay = False
 
@@ -198,16 +199,17 @@ class GuildMusicState:
 
     def clear(self):
         self.queue = asyncio.Queue()
+        self.autoplay_queue = asyncio.Queue()
         self.history.clear()
         self.current = None
         self.is_playing = False
         self.autoplay = False
-        self.autoplay_next = None
         self.force_skip_count = 0
         self.force_prev_count = 0
         self.ignore_play_check = 0
+        self.is_processing_next = False
+        self.is_fetching_autoplay = False
         if self.update_task: self.update_task.cancel()
-
 
 class MusicController(discord.ui.View):
     def __init__(self, cog, ctx):
@@ -350,7 +352,7 @@ class MusicController(discord.ui.View):
             button.style = discord.ButtonStyle.success
 
             if state.queue.empty() and state.is_playing:
-                self.cog.bot.loop.create_task(self.cog._process_autoplay(self.ctx))
+                self.cog.bot.loop.create_task(self.cog.fill_autoplay_queue(self.ctx))
         else:
             button.label = "자동재생: 끔"
             button.style = discord.ButtonStyle.secondary
@@ -508,8 +510,7 @@ class Music(commands.Cog):
     async def play_next(self, ctx):
         state = self.get_state(ctx.guild.id)
         
-        if getattr(state, 'is_processing_next', False):
-            return
+        if getattr(state, 'is_processing_next', False): return
         state.is_processing_next = True
         
         try:
@@ -519,21 +520,18 @@ class Music(commands.Cog):
             
             if not state.queue.empty():
                 item = await state.queue.get()
-                state.autoplay_next = None 
                 
             elif getattr(state, 'autoplay', False):
-                if getattr(state, 'is_fetching_autoplay', False):
-                    wait_count = 0
-                    while getattr(state, 'is_fetching_autoplay', False) and wait_count < 30:
-                        await asyncio.sleep(0.5)
-                        wait_count += 1
-                        
-                if not getattr(state, 'autoplay_next', None) and state.current:
-                    await self._process_autoplay(ctx)
-                    
-                if getattr(state, 'autoplay_next', None):
-                    item = state.autoplay_next
-                    state.autoplay_next = None
+                wait_count = 0
+                while state.autoplay_queue.empty() and getattr(state, 'is_fetching_autoplay', False) and wait_count < 20:
+                    await asyncio.sleep(0.5)
+                    wait_count += 1
+                
+                if state.autoplay_queue.empty() and state.current:
+                    await self.fill_autoplay_queue(ctx)
+                
+                if not state.autoplay_queue.empty():
+                    item = await state.autoplay_queue.get()
 
             if item:
                 if isinstance(item, dict) and item.get('lazy'):
@@ -561,8 +559,8 @@ class Music(commands.Cog):
                 except discord.errors.ClientException:
                     return
 
-                if state.queue.empty() and getattr(state, 'autoplay', False):
-                    self.bot.loop.create_task(self._process_autoplay(ctx))
+                if state.queue.empty() and getattr(state, 'autoplay', False) and state.autoplay_queue.empty():
+                    self.bot.loop.create_task(self.fill_autoplay_queue(ctx))
 
                 view = MusicController(self, ctx)
                 total_sec = state.current.data.get("duration") or 0
@@ -620,9 +618,8 @@ class Music(commands.Cog):
 
         self.bot.loop.create_task(self.play_next(ctx))
 
-    async def _process_autoplay(self, ctx):
+    async def fill_autoplay_queue(self, ctx):
         state = self.get_state(ctx.guild.id)
-        
         current_song = state.current
         if not current_song: return
         
@@ -634,7 +631,6 @@ class Music(commands.Cog):
             if not video_id: return
             
             mix_url = f"https://www.youtube.com/watch?v={video_id}&list=RD{video_id}"
-            
             pl_options = ytdl_format_options.copy()
             pl_options.update({'extract_flat': True, 'noplaylist': False})
             
@@ -642,20 +638,27 @@ class Music(commands.Cog):
             if not info or 'entries' not in info: return
                     
             entries = list(info['entries'])
+
+            played_urls = {h.get('url') for h in state.history if h.get('url')}
+            played_urls.add(current_song.webpage_url)
+            for q_item in list(state.queue._queue) + list(state.autoplay_queue._queue):
+                if isinstance(q_item, dict) and q_item.get('url'):
+                    played_urls.add(q_item['url'])
             
-            history_urls = {h.get('url') for h in state.history if h.get('url')}
-            history_urls.add(current_song.webpage_url)
-            
+            added = 0
             for entry in entries:
                 if not entry: continue
                 url = entry.get('url') or entry.get('webpage_url')
                 if not url and entry.get('id'): url = f"https://www.youtube.com/watch?v={entry.get('id')}"
                 
-                if url and url not in history_urls and entry.get('title') not in ["[Private video]", "[Deleted video]"]:
-                    state.autoplay_next = {'lazy': True, 'title': entry.get('title'), 'url': url}
-                    break
+                if url and url not in played_urls and entry.get('title') not in ["[Private video]", "[Deleted video]"]:
+                    await state.autoplay_queue.put({'lazy': True, 'title': entry.get('title'), 'url': url})
+                    played_urls.add(url)
+                    added += 1
+                    if added >= 3: 
+                        break
         except Exception as e:
-            print(f"자동재생 로드 오류: {e}")
+            print(f"자동재생 탄창 로드 오류: {e}")
         finally:
             state.is_fetching_autoplay = False
 
@@ -755,19 +758,20 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="자동재생", aliases=["autoplay", "ap", "ㅈㄷㅈㅅ"])
     async def toggle_autoplay(self, ctx):
-        """대기열이 끝났을 때 유튜브 믹스를 기반으로 자동 재생합니다. (= /자동재생) [= !ap]"""
         state = self.get_state(ctx.guild.id)
         state.autoplay = not getattr(state, 'autoplay', False)
         
+        if not state.autoplay:
+            state.autoplay_queue = asyncio.Queue()
+            
         status = "켜짐 🟢" if state.autoplay else "꺼짐 🔴"
         color = discord.Color.green() if state.autoplay else discord.Color.red()
         
-        embed = discord.Embed(
-            title=f":infinity: 자동 재생이 {status}", 
-            description="대기열의 마지막 곡이 끝나면 유사한 곡을 찾아 재생합니다." if state.autoplay else "더 이상 곡을 자동으로 추가하지 않습니다.",
-            color=color
-        )
+        embed = discord.Embed(title=f":infinity: 자동 재생이 {status}", color=color)
         await ctx.send(embed=embed)
+        
+        if state.autoplay and state.queue.empty() and state.is_playing:
+            self.bot.loop.create_task(self.fill_autoplay_queue(ctx))
 
     @commands.hybrid_command(name="추가", aliases=["add", "pladd", "ㅁㅇㅇ"])
     async def save_to_playlist(self, ctx, playlist: str, *, query: str):
