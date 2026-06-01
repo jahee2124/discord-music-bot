@@ -508,10 +508,11 @@ class Music(commands.Cog):
             if state.update_task: state.update_task.cancel()
             item = None
             
-            # 실패해도 멈추지 않고 큐에서 계속 다음 곡을 뽑도록 while문 적용
             while True:
                 if not state.queue.empty():
                     item = await state.queue.get()
+                    state.autoplay_queue = asyncio.Queue()
+                    
                 elif getattr(state, 'autoplay', False):
                     if state.autoplay_queue.empty():
                         await self.fill_autoplay_queue(ctx)
@@ -530,10 +531,10 @@ class Music(commands.Cog):
                         source = await YTDLSource.from_url(item['url'], loop=self.bot.loop, stream=True, volume=state.volume)
                         if source:
                             state.current = source
-                            break  # 성공적으로 가져오면 루프 탈출
+                            break
                         else:
                             await ctx.send(embed=discord.Embed(title=f":warning: 곡을 불러올 수 없어 건너뜁니다.", description=item.get('title'), color=discord.Color.gold()))
-                            continue  # 실패 시 멈추지 않고 다음 곡 시도
+                            continue
                     except Exception as e:
                         await ctx.send(embed=discord.Embed(title=f":warning: 재생 불가, 건너뜁니다.", description=item.get('title'), color=discord.Color.red()))
                         continue
@@ -557,7 +558,6 @@ class Music(commands.Cog):
             except discord.errors.ClientException:
                 return
 
-            # 재생을 시작했으면 미리 백그라운드에서 다음 자동재생 곡 충전 (탄창 확보)
             if getattr(state, 'autoplay', False) and state.autoplay_queue.qsize() < 2:
                 self.bot.loop.create_task(self.fill_autoplay_queue(ctx))
 
