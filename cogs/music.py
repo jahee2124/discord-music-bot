@@ -601,13 +601,15 @@ class Music(commands.Cog):
 
     async def _process_autoplay(self, ctx):
         state = self.get_state(ctx.guild.id)
-        if not state.current: return
+        
+        current_song = state.current
+        if not current_song: return
         
         if getattr(state, 'is_fetching_autoplay', False): return
         state.is_fetching_autoplay = True
         
         try:
-            video_id = state.current.data.get('id')
+            video_id = current_song.data.get('id')
             if not video_id: return
             
             mix_url = f"https://www.youtube.com/watch?v={video_id}&list=RD{video_id}"
@@ -621,7 +623,7 @@ class Music(commands.Cog):
             entries = list(info['entries'])
             
             history_urls = {h.get('url') for h in state.history if h.get('url')}
-            history_urls.add(state.current.webpage_url)
+            history_urls.add(current_song.webpage_url)
             
             for entry in entries:
                 if not entry: continue
