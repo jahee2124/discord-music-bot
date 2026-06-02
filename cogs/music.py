@@ -466,6 +466,7 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="입장", aliases=["join"])
     async def join(self, ctx, *, channel: discord.VoiceChannel = None):
+        """입력한 음성채널 또는 사용자가 있는 채널 입장 (= /입장) [= !join]"""
         if channel is None and ctx.author.voice: channel = ctx.author.voice.channel
         if ctx.voice_client is not None: return await ctx.voice_client.move_to(channel)
         if channel: await channel.connect()
@@ -473,6 +474,7 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="재생", aliases=["play", "p", "ㅔ", "P", "ㅖ"])
     async def play(self, ctx, *, query):
+        """대기열에 음악 추가 (= /재생 [검색어]) [= !play, !p]"""
         state = self.get_state(ctx.guild.id)
         async with ctx.typing():
             player = await YTDLSource.from_url(query, loop=self.bot.loop, stream=True, volume=state.volume)
@@ -485,6 +487,7 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="우선재생", aliases=["playfirst", "pf", "ㅔㄹ"])
     async def play_top(self, ctx, *, query):
+        """대기열 맨 앞에 음악을 추가합니다. (= /우선재생 [검색어]) [= !playfirst, !pf, !ㅔㄹ]"""
         state = self.get_state(ctx.guild.id)
         async with ctx.typing():
             player = await YTDLSource.from_url(query, loop=self.bot.loop, stream=True, volume=state.volume)
@@ -624,12 +627,10 @@ class Music(commands.Cog):
         state.is_fetching_autoplay = True
         
         try:
-            # 1. 완벽하게 URL과 ID를 분리해서 추출 (NoneType 에러 원천 차단)
             base_url = None
             if state.current:
                 base_url = getattr(state.current, 'webpage_url', getattr(state.current, 'url', None))
             
-            # 현재 곡 데이터가 꼬였으면 히스토리에서 가져옴
             if not base_url and state.history:
                 base_url = state.history[-1].get('url')
                 
@@ -643,7 +644,6 @@ class Music(commands.Cog):
                 
             if not video_id: return
             
-            # 2. 유튜브 믹스 가져오기
             mix_url = f"https://www.youtube.com/watch?v={video_id}&list=RD{video_id}"
             pl_options = ytdl_format_options.copy()
             pl_options.update({'extract_flat': True, 'noplaylist': False})
@@ -653,7 +653,6 @@ class Music(commands.Cog):
                     
             entries = list(info['entries'])
 
-            # 3. 중복 방지를 위해 확인
             played_urls = {h.get('url') for h in state.history if h.get('url')}
             played_urls.add(base_url)
             for q_item in list(state.queue._queue) + list(state.autoplay_queue._queue):
@@ -670,7 +669,7 @@ class Music(commands.Cog):
                     await state.autoplay_queue.put({'lazy': True, 'title': entry.get('title'), 'url': url})
                     played_urls.add(url)
                     added += 1
-                    if added >= 3: # 탄창에 3곡 미리 장전
+                    if added >= 3: 
                         break
         except Exception as e:
             print(f"자동재생 로드 오류: {e}")
@@ -679,6 +678,7 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="스킵", aliases=["skip", "s"])
     async def skip(self, ctx):
+        """현재 재생중인 노래 스킵 (= /스킵) [= !skip, !s]"""
         state = self.get_state(ctx.guild.id)
         if getattr(state, 'is_processing_next', False):
             return await ctx.send(embed=discord.Embed(title=":hourglass: 다음 곡을 준비 중입니다. 잠시만요!", color=discord.Color.from_str("#ffcc00")))
@@ -692,6 +692,7 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="정지", aliases=["pause", "일시정지"])
     async def pause(self, ctx):
+        """재생중인 음악 일시정지 (= /정지) [= !pause, !일시정지]"""
         if ctx.voice_client and ctx.voice_client.is_playing():
             ctx.voice_client.pause()
             self.get_state(ctx.guild.id).pause_time = time.time()
@@ -699,6 +700,7 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="재개", aliases=["resume"])
     async def resume(self, ctx):
+        """일시정지된 음악 다시 재생 (= /재개) [= !resume]"""
         if ctx.voice_client and ctx.voice_client.is_paused():
             ctx.voice_client.resume()
             state = self.get_state(ctx.guild.id)
@@ -709,6 +711,7 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="대기열", aliases=["playingnext", "pn"])
     async def show_queue(self, ctx):
+        """대기열 목록 출력 (= /대기열) [= !playingnext, !pn]"""
         state = self.get_state(ctx.guild.id)
         if not state.queue.empty():
             view = QueuePaginator(list(state.queue._queue))
@@ -718,6 +721,7 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="셔플", aliases=["shuffle", "섞기", "ㅅㅍ"])
     async def shuffle_queue(self, ctx):
+        """현재 대기열에 있는 곡들의 순서를 무작위로 섞습니다. (= /셔플) [= !shuffle, !ㅅㅍ]"""
         state = self.get_state(ctx.guild.id)
         if state.queue.empty(): return await ctx.send(embed=discord.Embed(title=":question: 섞을 곡이 없습니다.", color=discord.Color.from_str("#ff6600")))
         temp_queue = list(state.queue._queue)
@@ -728,6 +732,7 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="초기화", aliases=["clearqueue", "대기열비우기", "cq", "clear"])
     async def clear_queue(self, ctx):
+        """대기열에 있는 모든 곡을 한 번에 삭제합니다. (= /초기화) [= !cq, !clearqueue, !clear]"""
         state = self.get_state(ctx.guild.id)
         cleared_count = state.queue.qsize()
         history_count = len(state.history)
@@ -739,6 +744,7 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="음량", aliases=["volume", "볼륨", "vol"])
     async def volume(self, ctx, volume: int = None):
+        """음량 조절 또는 현재 음량 확인(= /음량 [(선택사항)1 ~ 100 (기본값 30)]) [= !volume, !볼륨]"""
         state = self.get_state(ctx.guild.id)
         if ctx.voice_client is None or ctx.voice_client.source is None: return await ctx.send(embed=discord.Embed(title=":warning: 설정 대상 없음", color=discord.Color.from_str("#ff6600")))
         if volume is not None:
@@ -757,6 +763,7 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="퇴장", aliases=["quit"])
     async def stop(self, ctx):
+        """재생을 중단하고 음성채널 퇴장 (= /퇴장) [= !quit]"""
         if ctx.voice_client:
             self.get_state(ctx.guild.id).clear()
             await ctx.voice_client.disconnect()
@@ -764,6 +771,7 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="자동재생", aliases=["autoplay", "ap", "ㅈㄷㅈㅅ"])
     async def toggle_autoplay(self, ctx):
+        """대기열이 끝났을 때 유튜브 믹스를 기반으로 자동 재생합니다. (= /자동재생) [= !ap]"""
         state = self.get_state(ctx.guild.id)
         state.autoplay = not getattr(state, 'autoplay', False)
         
@@ -781,6 +789,7 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="추가", aliases=["add", "pladd", "ㅁㅇㅇ"])
     async def save_to_playlist(self, ctx, playlist: str, *, query: str):
+        """원하는 플레이리스트에 노래를 영구 저장합니다. (= /추가 [플리 이름] [검색어])"""
         async with ctx.typing():
             player = await YTDLSource.from_url(query, loop=self.bot.loop, stream=True)
             if not player: return await ctx.send(embed=discord.Embed(title=":x: 가져올 수 없음", color=discord.Color.red()))
@@ -791,6 +800,7 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="플리복사", aliases=["plcopy", "복사"])
     async def copy_youtube_playlist(self, ctx, url: str, *, playlist: str):
+        """유튜브 플레이리스트의 모든 곡을 한 번에 복사해옵니다."""
         if "list=" in url:
             try:
                 from urllib.parse import urlparse, parse_qs
@@ -821,6 +831,7 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="노래목록", aliases=["sl", "songlist"])
     async def show_playlist(self, ctx, playlist: str):
+        """플레이리스트의 곡 목록을 보여줍니다. (= /노래목록 [플리 이름])"""
         tracks = self.playlist_manager.get_tracks(playlist)
         if not tracks: return await ctx.send(embed=discord.Embed(title=":x: 없음", color=discord.Color.red()))
         view = PlaylistPaginator(tracks, playlist)
@@ -828,6 +839,7 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="노래삭제", aliases=["삭제", "pdel"])
     async def delete_from_playlist(self, ctx, playlist: str, index: int):
+        """플레이리스트에서 특정 곡을 삭제합니다. (= /노래삭제 [플리 이름] [번호])"""
         deleted = self.playlist_manager.delete_song(playlist, index - 1)
         if deleted: await ctx.send(embed=discord.Embed(title=f":wastebasket: 삭제 완료: {deleted['title']}", color=discord.Color.gold()))
         else: await ctx.send(embed=discord.Embed(title=":warning: 잘못된 입력", color=discord.Color.red()))
@@ -835,6 +847,7 @@ class Music(commands.Cog):
     @commands.hybrid_command(name="플리재생", aliases=["playlistplay", "pp", "ㅔㅔ"])
     @app_commands.choices(mode=[app_commands.Choice(name="순서대로", value="순서대로"), app_commands.Choice(name="셔플", value="셔플")])
     async def play_playlist(self, ctx, playlist: str, mode: str = "순서대로"):
+        """플레이리스트의 노래들을 대기열에 일괄 추가하고 재생합니다. (= /플리재생 [플리 이름] [모드])"""
         tracks = self.playlist_manager.get_tracks(playlist, shuffle=(mode == "셔플"))
         if not tracks: return await ctx.send(embed=discord.Embed(title=":x: 비어있음", color=discord.Color.red()))
         state = self.get_state(ctx.guild.id)
@@ -844,6 +857,7 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="플리목록", aliases=["pllist"])
     async def list_playlists(self, ctx):
+        """현재 만들어진 모든 플레이리스트 목록과 곡 수를 보여줍니다. (= /플리목록)"""
         playlists = self.playlist_manager.get_all_playlists()
         if not playlists: return await ctx.send(embed=discord.Embed(title=":x: 없음", color=discord.Color.red()))
         msg = "".join([f"**{i}.** 📁 {n} ({c}곡)\n" for i, (n, c) in enumerate(playlists.items(), 1)])
@@ -851,6 +865,7 @@ class Music(commands.Cog):
 
     @commands.hybrid_command(name="플리삭제", aliases=["pldelete"])
     async def delete_entire_playlist(self, ctx, playlist: str):
+        """플레이리스트 폴더 자체를 통째로 삭제합니다. (= /플리삭제 [플리 이름])"""
         if playlist not in self.playlist_manager.playlists: return await ctx.send(embed=discord.Embed(title=":x: 없음", color=discord.Color.red()))
         await ctx.send(embed=discord.Embed(title=":warning: 영구 삭제", description=f"`{playlist}` 입력 시 삭제", color=discord.Color.red()))
         try:
