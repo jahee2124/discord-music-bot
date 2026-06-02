@@ -57,19 +57,42 @@ class Help(commands.Cog):
                     continue
                 
                 cmd_text = ""
+                part_num = 1
                 for cmd in visible_commands:
                     short_desc = cmd.short_doc or "설명 없음"
-                    cmd_text += f"**`{ctx.clean_prefix}{cmd.name}`** - {short_desc}\n"
+                    line = f"**`{ctx.clean_prefix}{cmd.name}`** - {short_desc}\n"
+                    
+                    if len(cmd_text) + len(line) > 1000:
+                        name = f"📦 {cog.qualified_name}" if part_num == 1 else f"📦 {cog.qualified_name} (계속)"
+                        embed.add_field(name=name, value=cmd_text, inline=False)
+                        cmd_text = line
+                        part_num += 1
+                    else:
+                        cmd_text += line
                 
-                embed.add_field(name=f"📦 {cog.qualified_name}", value=cmd_text, inline=False)
+                if cmd_text:
+                    name = f"📦 {cog.qualified_name}" if part_num == 1 else f"📦 {cog.qualified_name} (계속)"
+                    embed.add_field(name=name, value=cmd_text, inline=False)
             
             uncategorized = [cmd for cmd in self.bot.commands if cmd.cog is None and not cmd.hidden]
             if uncategorized:
-                 un_cmds = ""
-                 for cmd in uncategorized:
-                     short_desc = cmd.short_doc or "설명 없음"
-                     un_cmds += f"**`{ctx.clean_prefix}{cmd.name}`** - {short_desc}\n"
-                 embed.add_field(name="📌 기타", value=un_cmds, inline=False)
+                un_cmds = ""
+                part_num = 1
+                for cmd in uncategorized:
+                    short_desc = cmd.short_doc or "설명 없음"
+                    line = f"**`{ctx.clean_prefix}{cmd.name}`** - {short_desc}\n"
+                    
+                    if len(un_cmds) + len(line) > 1000:
+                        name = "📌 기타" if part_num == 1 else "📌 기타 (계속)"
+                        embed.add_field(name=name, value=un_cmds, inline=False)
+                        un_cmds = line
+                        part_num += 1
+                    else:
+                        un_cmds += line
+                
+                if un_cmds:
+                    name = "📌 기타" if part_num == 1 else "📌 기타 (계속)"
+                    embed.add_field(name=name, value=un_cmds, inline=False)
 
             await ctx.send(embed=embed)
 
