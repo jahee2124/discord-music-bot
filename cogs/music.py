@@ -27,7 +27,7 @@ ytdl_format_options = {
     'compat_opts': ['no-youtube-unavailable-videos'],
     'extractor_args': {
         'youtube': {
-            'player_client': ['tv_embedded']
+            'client': ['tv', 'android', 'web']
         }
     }
 }
